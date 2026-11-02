@@ -40,6 +40,15 @@ Browser: Chrome/Edge empfohlen (bestes AudioWorklet-Timing, Ausgabegerät wählb
 | Effekte | Tremolo · Pitch-Mod · Phaser (6 Stufen, Feedback) · Flanger · Chorus · Delay (sync, Ping-Pong, Ton) · Reverb (8×8-FDN) |
 | Mutate | siehe unten |
 
+### ● Aufnahme
+Direkt in den Sequencer aufnehmen — das Ergebnis wird sofort ein neues Sample im Projekt (verlustfrei als 32-Bit-Float gespeichert) und automatisch auf die Steps gesliced.
+- **Quelle:** *Eingang* (Mikrofon/Interface, Stereo oder Mono L/R, Geräteauswahl) oder *Resample Master* (der komplette Ausgang inkl. FX, Collide und Rip — zum Weiterschichten).
+- **Sync:** startet sample-genau auf Step 1 und stoppt nach 1/2/4/8 Pattern-Durchläufen; optional ein Durchlauf **Count-in**. Die Slices sitzen damit exakt auf den Steps. Startet die Wiedergabe bei Bedarf selbst.
+- **Frei:** Aufnahme per Knopf, danach nach Transienten gesliced (max. 10 min).
+- **Latenzausgleich:** Eingangsaufnahmen im Sync-Modus werden um die vom Browser gemeldete Roundtrip-Latenz verschoben, plus manuellem Versatz (Einstellungen → Aufnahme). Exakt messen: Ausgang per Kabel auf den Eingang, einen Step mit kurzem Klick aufnehmen, Versatz so einstellen, dass der Klick am Slice-Anfang liegt.
+- Eingang ohne Echo-Unterdrückung, Rauschfilter und automatische Pegelregelung — das Signal kommt unbearbeitet an. Eingangsmeter mit CLIP-Anzeige, optionales Monitoring über den Master (Kopfhörer verwenden).
+- *Bounce* im Transport bleibt davon getrennt: Er schreibt den Master direkt als WAV-Datei auf die Festplatte.
+
 ### ✦ Mutate
 Nach dem Ansatz jedes Mal anders. Der **Attack bleibt bei jeder Auslösung identisch** (plus einstellbare Schutzzeit), erst danach blendet Mutate in 25 ms eine pro Auslösung neu gewürfelte Modulation ein — über fünf Dimensionen: Pitch, Filter, Raum (Pan), Warp (Bandgeschwindigkeit) und Pegel. Kein Durchlauf klingt wie der vorige, aber der Step bleibt erkennbar er selbst.
 
@@ -72,6 +81,7 @@ Compressor (Soft-Knee, Peak-Detektor, Attack/Release, Makeup, Dry/Wet = Parallel
 | Synth-Sägezahn auf C8 (4186 Hz): stärkste Nicht-Harmonische | **−99 dB** unter Grundton |
 | Sampler: 15-kHz-Sinus +12 st (würde bei 18 kHz aliasen) — Qualität „Hoch" | **−115 dB** |
 | Sampler unverändert (Pitch 0, Fader 0 dB, Pan-Law Balance) | **bit-genau** identisch zur Quelle |
+| Sync-Aufnahme bei krummem Tempo (117 BPM), Count-in + Latenzausgleich | Start und Länge **auf das Sample genau** |
 | Stresstest: alle FX auf Maximum, Feedback 0.95, Collide + Rip, Gain +6 dB | kein NaN/Inf, Peak ≤ −0.3 dBFS |
 
 Details zu Architektur und Entscheidungen: [`docs/DSP.md`](docs/DSP.md).
@@ -87,14 +97,14 @@ src/
   styles.css
   audio/
     chili-processor.js    die gesamte DSP-Engine (AudioWorklet)
-    engine.js             Brücke Main-Thread ↔ Worklet, Bounce
+    engine.js             Brücke Main-Thread ↔ Worklet, Eingang, Aufnahme, Bounce
     slicer.js             gleichmäßiges + Transienten-Slicing, Wellenform-Peaks
     wav.js                WAV-Encoder (16/24 PCM mit TPDF-Dither, 32 Float)
   state/
     params.js             alle Parameter-Definitionen (Bereiche, Kurven, Defaults)
     project.js            Projektmodell, Tempo-Umrechnung, Würfeln
     storage.js            IndexedDB, .chili-Export/Import
-  ui/                     dom.js (Knobs etc.), sequencer.js, special.js, master.js, pages.js
+  ui/                     dom.js (Knobs etc.), sequencer.js, recorder.js, special.js, master.js, pages.js
 tests/dsp.test.mjs        Headless-DSP-Tests
 docs/DSP.md               Engine-Dokumentation
 ```

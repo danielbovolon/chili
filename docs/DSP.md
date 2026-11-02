@@ -49,6 +49,12 @@ Kollision → 3…80 Grains (Hann-Fenster, 6–76 ms) aus den Slices beider bete
 - **Safety-Limiter:** 1.5 ms Lookahead, Sliding-Window-Minimum (monotone Deque) + Box-Glättung über das Fenster → die Gain-Kurve erreicht garantiert vor dem Peak den nötigen Wert, ohne Sprung. Unterhalb der Ceiling ist g = 1 → bit-transparent. Release 80 ms.
 - LUFS Momentary: K-Weighting nach BS.1770 (für jede Samplerate neu berechnete Koeffizienten), 400-ms-Fenster.
 
+## Aufnahme (Capture)
+- Der Eingang (MediaStream) ist direkt an den Worklet-Eingang angeschlossen; Kanalwahl (Stereo/L/R) im Worklet.
+- Sync-Start wird im selben Tick-Handler ausgelöst wie die Step-Trigger: Startsample = Event-Sample von Step 1. Stopp nach `Länge × Durchläufe` Steps am Event-Sample.
+- Latenzausgleich: die ersten `compN` Samples werden verworfen und ab dem Stopp-Sample `compN` Samples nachgeschrieben → identische Länge, verschobener Inhalt.
+- Daten gehen in 16384-Frame-Blöcken an den Main-Thread, werden als 32-Bit-Float-WAV (ohne Dither) gespeichert und wie ein Import behandelt.
+
 ## Voices
 - Pool `maxVoices + 4`, alles vorallokiert (keine Garbage Collection im Audio-Thread).
 - Stealing: zuerst Voices im Ausklang (nur noch Delay/Reverb-Tail), dann die älteste, mit 4-ms-Fade.

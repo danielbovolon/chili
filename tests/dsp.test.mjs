@@ -103,5 +103,27 @@ for (const lobes of [12, 16, 24]) {
   ok(maxErr < 1e-6, `Unity-Pitch, Fader 0 dB, Pan-Law Balance: bit-genau (max. Abweichung ${maxErr.toExponential(1)})`);
 }
 
+/* 5. Aufnahme: Sync-Start auf Step 1, exakte Länge, Count-in, Latenzausgleich */
+{
+  const p = mk(), msgs = [], chunks = [];
+  p.port.postMessage = (m) => { msgs.push(m); if (m.type === 'cap') chunks.push(m); };
+  p.onMsg({ type: 'state', state: { ...state(Array.from({ length: 32 }, () => makeStep({ on: false }))), bpm: 117 } }); // krummes Tempo → Steps nicht blockbündig
+  const comp = 137; // Latenzausgleich in Samples
+  p.onMsg({ type: 'capArm', mode: 'sync', src: 'input', passes: 2, countIn: 1, compN: comp });
+  p.onMsg({ type: 'play', on: true });
+  // Eingang: Sample-Zähler als Signal → prüft exakte Position
+  const N = 128; let k = 0; const oL = new Float32Array(N), oR = new Float32Array(N);
+  for (let b = 0; b < 6000 && !msgs.some((m) => m.type === 'capEnd'); b++) {
+    const iL = new Float32Array(N), iR = new Float32Array(N); for (let i = 0; i < N; i++) { iL[i] = (k + i) / 1e6; iR[i] = -(k + i) / 1e6; }
+    p.process([[iL, iR]], [[oL, oR]]); k += N;
+  }
+  const L = chunks.flatMap((c) => Array.from(c.L));
+  const stepN = (240 / 117) * (1 / 16) * SR, want = Math.ceil(16 * 3 * stepN) - Math.ceil(16 * stepN);
+  ok(L.length === want, `Sync-Aufnahme: ${L.length} Samples = 2 Durchläufe × 16 Steps (erwartet ${want})`);
+  const start = Math.round(L[0] * 1e6), expected = Math.ceil(16 * stepN) + comp; // Count-in 1 Durchlauf + Ausgleich
+  ok(start === expected, `Sync-Start sample-genau nach Count-in + Latenzausgleich (Sample ${start}, erwartet ${expected})`);
+  ok(msgs.some((m) => m.type === 'capState' && m.state === 'countin') && msgs.some((m) => m.type === 'capState' && m.state === 'recording'), 'Status: Count-in → Aufnahme → fertig');
+}
+
 console.log(fails ? `\n${fails} Test(s) fehlgeschlagen` : '\nAlle Tests bestanden 🌶');
 process.exit(fails ? 1 : 0);

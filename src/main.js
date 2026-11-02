@@ -1,6 +1,8 @@
 /* Chili v0.1 — App-Controller */
 import { Engine } from './audio/engine.js';
 import { equalSlices, transientSlices, peaks } from './audio/slicer.js';
+import { encodeWav } from './audio/wav.js';
+import { recorderView } from './ui/recorder.js';
 import * as storage from './state/storage.js';
 import { newProject, normalizeProject, engineState, uid, tempoBpm } from './state/project.js';
 import { h, CHILI_SVG } from './ui/dom.js';
@@ -11,7 +13,7 @@ import { projectsView, settingsView } from './ui/pages.js';
 
 const VERSION = '0.1.0';
 const SETTINGS_KEY = 'chili.settings', LAST_KEY = 'chili.lastProject';
-const defaultSettings = () => ({ sampleRate: 'auto', latency: 'interactive', outputDevice: '', quality: '16', maxVoices: 16, limiter: true, ceiling: -0.3, panLaw: 'm3', refA: 440, noteFloor: 70, peakHold: 1.5, exportBits: '24', dither: true, autosave: 30, auditionOnSelect: true });
+const defaultSettings = () => ({ sampleRate: 'auto', latency: 'interactive', outputDevice: '', quality: '16', maxVoices: 16, limiter: true, ceiling: -0.3, panLaw: 'm3', refA: 440, noteFloor: 70, peakHold: 1.5, exportBits: '24', dither: true, inputDevice: '', inputCh: 'stereo', recAutoComp: true, recOffset: 0, autosave: 30, auditionOnSelect: true });
 const RESTART_KEYS = ['sampleRate', 'latency', 'outputDevice', 'quality', 'maxVoices'];
 const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
@@ -41,9 +43,10 @@ app.refreshPart = (p) => {
   if (p === 'source') v.source.refresh();
   if (p === 'special') { v.collide.refresh(); v.rip.refresh(); }
   if (p === 'master') v.master.refresh();
+  if (p === 'recorder') v.recorder.refresh();
   if (p === 'header') renderHeader();
 };
-app.refreshAll = () => ['transport', 'grid', 'editor', 'source', 'special', 'master', 'header'].forEach(app.refreshPart);
+app.refreshAll = () => ['transport', 'grid', 'editor', 'source', 'recorder', 'special', 'master', 'header'].forEach(app.refreshPart);
 app.stepSeconds = () => {
   const d = { '1/8': 1 / 8, '1/8T': 1 / 12, '1/16': 1 / 16, '1/16T': 1 / 24, '1/32': 1 / 32 }[app.project.transport.division];
   return (240 / tempoBpm(app.project.transport, app.settings)) * d;
@@ -88,6 +91,7 @@ async function startAudio() {
     for (const s of app.project.samples) await decodeSample(s.id);
     app.engine.setStateNow(engineState(app.project, app.settings));
     if (app.project.rip.brain) app.engine.setBrain(app.project.rip.brain);
+    if (app.rec && app.rec.info) await app.enableInput();
     document.body.classList.add('audio-on'); setStatus(); app.refreshPart('source');
   } catch (err) { console.error(err); toast(`Audio konnte nicht starten: ${err.message}`, true); throw err; }
 }
@@ -98,7 +102,7 @@ async function decodeSample(id) {
   const buf = await app.engine.decode(bytes);
   app.buffers.set(id, buf); app.peaks.set(id, peaks(buf)); app.engine.sendSample(id, buf);
 }
-app.importFiles = async (files) => {
+app.importFiles = async (files, opt = {}) => {
   if (!files.length) return;
   await ensureAudio();
   let first = null;
@@ -110,10 +114,10 @@ app.importFiles = async (files) => {
       app.project.samples.push({ id, name: f.name.replace(/\.[^.]+$/, '') });
       await decodeSample(id);
       first ||= id;
-      if (app.buffers.get(id)) app.reslice(id, 'equal', 'steps', 0.5, files.length === 1 || first === id, true);
+      if (app.buffers.get(id)) app.reslice(id, opt.mode || 'equal', opt.count || 'steps', 0.5, files.length === 1 || first === id, true);
     } catch (err) { console.error(err); toast(`„${f.name}" konnte nicht dekodiert werden`, true); }
   }
-  if (first) { app.viewSample = first; app.commit('source', 'grid', 'editor'); toast(`${files.length} Datei(en) importiert und gesliced`); }
+  if (first) { app.viewSample = first; app.commit('source', 'grid', 'editor'); if (!opt.quiet) toast(`${files.length} Datei(en) importiert und gesliced`); }
 };
 app.reslice = (id, mode, count, sens, assign = true, quiet = false) => {
   const buf = app.buffers.get(id); if (!buf) return;
@@ -125,8 +129,9 @@ app.reslice = (id, mode, count, sens, assign = true, quiet = false) => {
   const base = keep.length;
   p.slices = keep.concat(parts.map(([a, b]) => ({ sampleId: id, a, b })));
   p.steps.forEach((s, i) => {
-    if (remap.has(s.slice)) s.slice = remap.get(s.slice);
-    else if (oldIdx.has(s.slice) || assign) { if (assign && i < L) { s.slice = base + (i % parts.length); s.source = 'sample'; } else s.slice = base + (s.slice % parts.length); }
+    if (assign && i < L) { s.slice = base + (i % parts.length); s.source = 'sample'; } // neues Material auf die aktiven Steps legen
+    else if (remap.has(s.slice)) s.slice = remap.get(s.slice);                           // andere Samples: Index nachführen
+    else if (oldIdx.has(s.slice)) s.slice = base + ((s.slice - Math.min(...oldIdx)) % parts.length); // gleiches Sample neu geschnitten
   });
   if (assign) p.steps.slice(0, L).forEach((s, i) => { if (i < L) s.on = true; });
   if (!quiet) { app.commit('source', 'grid', 'editor'); toast(`${parts.length} Slices`); }
@@ -157,6 +162,57 @@ app.toggleRec = async () => {
     toast('Bounce gespeichert');
   } else { app.recording = false; app.engine.stopRec(); app.refreshPart('transportLite'); }
 };
+
+/* ------------------------------------------------------------------ Aufnahme in den Sequencer */
+app.rec = { open: false, src: 'input', mode: 'sync', passes: 1, countIn: true, monitor: false, state: 'idle', count: 0, info: null };
+app.toggleRecorder = () => { app.rec.open = !app.rec.open; app.refreshPart('recorder'); };
+app.enableInput = async () => {
+  await ensureAudio();
+  try {
+    app.rec.info = await app.engine.enableInput(app.settings.inputDevice);
+    app.engine.setInput(app.settings.inputCh, app.rec.monitor);
+    toast(`Eingang: ${app.rec.info.label || 'Standard'} · ${app.rec.info.channels} Kanal/Kanäle`);
+  } catch (err) { console.error(err); app.rec.info = null; toast(err.name === 'NotAllowedError' ? 'Mikrofonzugriff wurde verweigert' : `Eingang nicht verfügbar: ${err.message}`, true); }
+  app.refreshPart('recorder');
+};
+app.disableInput = () => { app.engine.disableInput(); app.rec.info = null; app.rec.monitor = false; app.engine.setInput(app.settings.inputCh, false); app.refreshPart('recorder'); };
+app.setInputOpt = (k, v) => {
+  if (k === 'inputDevice' || k === 'inputCh') { app.settings[k] = v; lsSet(SETTINGS_KEY, JSON.stringify(app.settings)); }
+  else app.rec[k] = v;
+  if (k === 'inputDevice' && app.engine.inputOn) app.enableInput();
+  app.engine.setInput(app.settings.inputCh, app.rec.monitor);
+  app.refreshPart('recorder');
+};
+/** Latenzausgleich für Eingangsaufnahmen im Sync-Modus: Wandler-Roundtrip (Ausgang + Eingang) + manueller Versatz */
+app.recCompMs = () => {
+  const e = app.engine, auto = app.settings.recAutoComp ? ((e.ctx.baseLatency || 0) + (e.ctx.outputLatency || 0) + ((e.inInfo && e.inInfo.latency) || 0)) * 1000 : 0;
+  return Math.max(0, auto + Number(app.settings.recOffset || 0));
+};
+app.startCapture = async () => {
+  await ensureAudio();
+  const r = app.rec;
+  if (r.state !== 'idle') { app.engine.stopCapture(); return; }
+  if (r.src === 'input' && !app.engine.inputOn) { await app.enableInput(); if (!app.engine.inputOn) return; }
+  const sr = app.engine.sampleRate, compN = r.src === 'input' && r.mode === 'sync' ? Math.round((app.recCompMs() / 1000) * sr) : 0;
+  const done = app.engine.capture({ mode: r.mode, src: r.src, passes: r.passes, countIn: r.mode === 'sync' && r.countIn ? 1 : 0, compN });
+  r.state = r.mode === 'sync' ? 'armed' : 'recording'; app.refreshPart('recorder');
+  if (r.mode === 'sync' && !app.playing) await app.togglePlay();
+  const res = await done;
+  r.state = 'idle'; app.refreshPart('recorder');
+  if (!res) { toast('Aufnahme abgebrochen'); return; }
+  r.count++;
+  const name = `${r.src === 'master' ? 'Resample' : 'Aufnahme'} ${r.count} · ${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`;
+  const blob = encodeWav(res.L, res.R, sr, 32, false); // verlustfrei: 32 Bit Float, kein Dither
+  const L = app.project.transport.length;
+  const opt = r.mode === 'sync' ? { mode: 'equal', count: String(Math.min(32, L * r.passes)), quiet: true } : { mode: 'trans', count: String(L), quiet: true };
+  await app.importFiles([new File([blob], `${name}.wav`, { type: 'audio/wav' })], opt);
+  const secs = res.L.reduce((a, c) => a + c.length, 0) / sr;
+  toast(`${name} — ${secs.toFixed(2)} s, ${r.mode === 'sync' ? 'auf die Steps gesliced' : 'nach Transienten gesliced'}`);
+};
+app.engine.on('capState', (m) => {
+  if (m.state === 'idle') return;
+  app.rec.state = m.state; app.rec.countLeft = m.countIn; app.refreshPart('recorder');
+});
 
 /* ------------------------------------------------------------------ Projekte */
 app.save = async () => {
@@ -213,7 +269,7 @@ app.engine.on('tick', (m) => {
   const delay = Math.max(0, (m.t - app.engine.ctx.currentTime + app.engine.latency) * 1000);
   setTimeout(() => { if (app.playing) app.views.grid.setPlayhead(m.step); }, delay);
 });
-app.engine.on('meter', (m) => { app.views.master.meter(m); app.views.collide.meter(m); app.views.rip.meter(m); });
+app.engine.on('meter', (m) => { app.views.master.meter(m); app.views.recorder.meter(m); app.views.collide.meter(m); app.views.rip.meter(m); });
 app.engine.on('collision', (m) => { app.views.collide.collision(m); app.views.grid.flash(m.step, 'hit'); });
 app.engine.on('dump', () => toast('Beam Dump — Strahl B zurückgesetzt'));
 
@@ -244,10 +300,10 @@ function go(page) {
 
 const V = app.views;
 V.transport = transportView(app); V.source = sourceView(app); V.grid = gridView(app); V.editor = editorView(app);
-V.collide = collideView(app); V.rip = ripView(app); V.master = masterView(app);
+V.recorder = recorderView(app); V.collide = collideView(app); V.rip = ripView(app); V.master = masterView(app);
 V.projects = projectsView(app); V.settings = settingsView(app);
 const pages = {
-  seq: h('main', { class: 'seq' }, V.transport, h('div', { class: 'cols' }, h('div', { class: 'left' }, V.source, V.grid, V.editor, h('div', { class: 'specials' }, V.collide, V.rip)), V.master)),
+  seq: h('main', { class: 'seq' }, V.transport, h('div', { class: 'cols' }, h('div', { class: 'left' }, V.source, V.recorder, V.grid, V.editor, h('div', { class: 'specials' }, V.collide, V.rip)), V.master)),
   projects: V.projects, settings: V.settings,
 };
 const gate = h('div', { class: 'gate', onclick: () => ensureAudio().then(() => gate.remove()).catch(() => {}) },

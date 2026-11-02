@@ -77,7 +77,7 @@ export function sourceView(app) {
   const el = h('section', { class: 'card source' },
     h('header', { class: 'card-h' }, h('h3', {}, 'Quelle'),
       h('div', { class: 'tools' },
-        h('button', { class: 'btn accent', onclick: () => fileIn.click() }, '＋ Import'), sampleSel, modeSel, countSel, sens,
+        h('button', { class: 'btn accent', onclick: () => fileIn.click() }, '＋ Import'), h('button', { class: 'btn recbtn', title: 'Eingang oder Master direkt als Sample aufnehmen', onclick: () => app.toggleRecorder() }, h('span', { class: 'rec-dot' }), 'Aufnahme'), sampleSel, modeSel, countSel, sens,
         h('button', { class: 'btn', title: 'Aktuelles Sample neu slicen und Steps zuweisen', onclick: () => app.reslice(app.viewSample, modeSel.value, countSel.value, +sens.value) }, 'Slicen'),
         h('button', { class: 'btn ghost', title: 'Sample aus Projekt entfernen', onclick: () => app.removeSample(app.viewSample) }, '✕')),
       fileIn),

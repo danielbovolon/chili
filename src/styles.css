@@ -224,3 +224,30 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
   .seq, .page { padding: 12px; } .grid { grid-template-columns: repeat(8, minmax(0, 1fr)); } .grid.len4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .sp-body { grid-template-columns: 1fr; } .ring, .brain { width: 100%; } .sgrid { grid-template-columns: 1fr; } .ed-sec { border-right: 0; }
 }
+
+/* ---------- Aufnahme */
+.recbtn { display: inline-flex; align-items: center; gap: 6px; }
+.recbtn .rec-dot { background: var(--accent); }
+.recorder { border-color: #4a2420; }
+.rec-body { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 16px; align-items: center; }
+.rec-ctrl { display: flex; flex-direction: column; gap: 10px; }
+.rec-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rec-row .tlabel { min-width: 52px; }
+.hint { font-size: 11px; color: var(--dim); }
+.recorder.src-master .in-only, .recorder.mode-free .sync-only { display: none; }
+.inmeter { display: flex; align-items: center; gap: 6px; }
+.inmeter .bars { display: flex; flex-direction: column; gap: 3px; width: 140px; }
+.inmeter .bars span { display: block; height: 5px; width: 0; border-radius: 3px; background: var(--m-low); transition: width .05s linear; }
+.inmeter .bars span.hot { background: var(--m-mid); }
+.clip { font: normal 700 9px var(--mono); padding: 2px 5px; border-radius: 4px; background: var(--line); color: var(--dim); }
+.clip.on { background: var(--accent); color: #fff; }
+.rec-go { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+.capbtn { display: flex; align-items: center; justify-content: center; gap: 10px; height: 54px; border-radius: 14px; border: 1px solid var(--line2); background: var(--panel2); cursor: pointer; font: 600 15px var(--sans); }
+.capbtn .rec-dot { width: 14px; height: 14px; background: var(--accent); }
+.capbtn:hover { border-color: var(--accent); }
+.capbtn.on { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 0 22px rgba(255, 59, 47, 0.45); }
+.capbtn.on .rec-dot { background: #fff; animation: pulse 1s infinite; }
+.capbtn.wait { background: #3a2410; border-color: var(--ember); color: var(--ember); box-shadow: none; }
+.capbtn.wait .rec-dot { background: var(--ember); }
+.cap-status { font: 10.5px var(--mono); color: var(--muted); line-height: 1.5; }
+@media (max-width: 760px) { .rec-body { grid-template-columns: 1fr; } }

@@ -735,6 +735,10 @@ class ChiliProcessor extends AudioWorkletProcessor {
     this.limOn = true;
     this.bL = new Float32Array(4096); this.bR = new Float32Array(4096);
     this.pk = [0, 0]; this.over = false; this.meterN = 0; this.meterEvery = Math.round(sr / 30); this.limMin = 1; this.cpu = 0; this.cpuT = 0;
+    // Aufnahme in den Sequencer (Eingang oder Master-Resampling), sample-genau
+    this.cap = { armed: false, active: false, mode: 'free', src: 'input', ch: 'stereo', passes: 1, countIn: 0, remaining: 0, compN: 0, skip: 0,
+      ending: false, extraLeft: 0, endFrom: 0, from: 0, to: -1, stopping: false, stopReq: false, L: new Float32Array(16384), R: new Float32Array(16384), i: 0, total: 0, maxN: sr * 600 };
+    this.inCh = 'stereo'; this.monitor = false; this.inPk = [0, 0]; this.inOver = false; this.inL = null; this.inR = null; this.curA = 0;
     this.rec = false; this.recL = new Float32Array(16384); this.recR = new Float32Array(16384); this.recI = 0;
     this.port.onmessage = (e) => this.onMsg(e.data);
     this.port.postMessage({ type: 'ready', sr });
@@ -760,6 +764,20 @@ class ChiliProcessor extends AudioWorkletProcessor {
       case 'rec':
         if (m.on) { this.rec = true; this.recI = 0; } else { this.flushRec(); this.rec = false; this.port.postMessage({ type: 'recEnd' }); }
         break;
+      case 'capArm': {
+        const c = this.cap; Object.assign(c, { mode: m.mode, src: m.src, passes: Math.max(1, m.passes | 0), countIn: m.countIn | 0, compN: Math.max(0, Math.round(m.compN || 0)),
+          i: 0, total: 0, ending: false, stopping: false, stopReq: false, from: 0, to: -1 });
+        if (m.mode === 'free') { c.armed = false; c.active = true; c.skip = 0; this.capState('recording'); }
+        else { c.armed = true; c.active = false; this.capState(c.countIn > 0 ? 'countin' : 'armed'); }
+        break;
+      }
+      case 'capStop': {
+        const c = this.cap;
+        if (c.active) c.stopReq = true;
+        else if (c.armed) { c.armed = false; this.capState('idle'); this.port.postMessage({ type: 'capEnd', empty: true }); }
+        break;
+      }
+      case 'input': this.inCh = m.ch || 'stereo'; this.monitor = !!m.monitor; break;
       case 'getBrain': this.port.postMessage({ type: 'brain', id: m.id, brain: this.rip.export() }); break;
       case 'setBrain': this.rip.import(m.brain); break;
       case 'ripReset': this.rip.p.seed = m.seed; this.rip.seed(m.seed); break;
@@ -816,7 +834,7 @@ class ChiliProcessor extends AudioWorkletProcessor {
     if (!this.C.on) {
       let guard = 0;
       while (this.tA <= 1e-7 && guard++ < 8) {
-        const st = this.stepI; this.trigger(st, {});
+        const st = this.stepI; this.capTick(st); this.trigger(st, {});
         const s = this.steps[st]; this.rip.tick(this, st, s ? s.ripWeight ?? 0.5 : 0.5, N);
         this.tA += this.stepDur * (st % 2 === 0 ? 1 + this.swing : 1 - this.swing);
         this.stepI = (st + 1) % N; this.port.postMessage({ type: 'tick', step: st, t: currentTime });
@@ -825,7 +843,7 @@ class ChiliProcessor extends AudioWorkletProcessor {
     }
     let guard = 0;
     while (this.posA >= this.nA - 1e-7 && guard++ < 8) {
-      const st = mod(this.nA, N); this.trigger(st, {});
+      const st = mod(this.nA, N); this.capTick(st); this.trigger(st, {});
       const s = this.steps[st]; this.rip.tick(this, st, s ? s.ripWeight ?? 0.5 : 0.5, N);
       this.nA += 1; this.port.postMessage({ type: 'tick', step: st, t: currentTime });
     }
@@ -893,6 +911,41 @@ class ChiliProcessor extends AudioWorkletProcessor {
     this.port.postMessage({ type: 'collision', step: sA, count: spawned, big: boost > 1, t: currentTime });
   }
 
+  capState(state) { this.port.postMessage({ type: 'capState', state, countIn: this.cap.countIn, t: currentTime }); }
+  /** Wird an jedem Step von Strahl A aufgerufen: Sync-Start auf Step 1, Stopp nach Länge × Durchläufe */
+  capTick(st) {
+    const c = this.cap;
+    if (c.active && c.mode === 'sync' && !c.ending) {
+      if (--c.remaining <= 0) { c.ending = true; c.extraLeft = c.compN; c.endFrom = this.curA; if (c.extraLeft <= 0) { c.to = this.curA; c.stopping = true; } }
+    }
+    if (c.armed && st === 0 && !c.active) {
+      if (c.countIn > 0) { c.countIn--; this.capState('countin'); }
+      else { c.armed = false; c.active = true; c.ending = false; c.remaining = this.len * c.passes; c.from = this.curA; c.to = -1; c.skip = c.compN; this.capState('recording'); }
+    }
+  }
+  capFlush() {
+    const c = this.cap;
+    if (c.i > 0) { const L = c.L.slice(0, c.i), R = c.R.slice(0, c.i); this.port.postMessage({ type: 'cap', L, R }, [L.buffer, R.buffer]); c.i = 0; }
+  }
+  capture(oL, oR, N) {
+    const c = this.cap; if (!c.active) return;
+    const from = c.from, to = c.to >= 0 ? c.to : N, iL = this.inL, iR = this.inR;
+    for (let n = from; n < to; n++) {
+      let l, r;
+      if (c.src === 'master') { l = oL[n]; r = oR[n]; }
+      else { l = iL ? iL[n] : 0; r = iR ? iR[n] : 0; }
+      if (c.skip > 0) { c.skip--; continue; }
+      c.L[c.i] = l; c.R[c.i] = r; c.total++;
+      if (++c.i >= c.L.length) this.capFlush();
+      if (c.ending && c.compN > 0 && n >= c.endFrom && --c.extraLeft <= 0) { c.stopping = true; break; }
+      if (c.total >= c.maxN) { c.stopping = true; break; }
+    }
+    c.from = 0; c.to = -1; c.endFrom = 0;
+    if (c.stopping || c.stopReq) {
+      this.capFlush(); c.active = false; c.stopping = false; c.stopReq = false; c.ending = false; c.armed = false;
+      this.capState('idle'); this.port.postMessage({ type: 'capEnd', empty: c.total === 0 });
+    }
+  }
   flushRec() {
     if (this.recI > 0) {
       const L = this.recL.slice(0, this.recI), R = this.recR.slice(0, this.recI);
@@ -905,10 +958,21 @@ class ChiliProcessor extends AudioWorkletProcessor {
     const out = outputs[0], oL = out[0], oR = out[1] || out[0], N = oL.length;
     if (this.bL.length < N) { this.bL = new Float32Array(N); this.bR = new Float32Array(N); }
     const bL = this.bL, bR = this.bR; bL.fill(0, 0, N); bR.fill(0, 0, N);
+    // Eingang: Kanalwahl + Pegel
+    const inp = _in && _in[0];
+    if (inp && inp.length) {
+      const c0 = inp[0], c1 = inp[1] || inp[0];
+      this.inL = this.inCh === 'R' ? c1 : c0; this.inR = this.inCh === 'L' ? c0 : c1;
+      for (let n = 0; n < N; n++) {
+        const a0 = Math.abs(this.inL[n]), a1 = Math.abs(this.inR[n]);
+        if (a0 > this.inPk[0]) this.inPk[0] = a0; if (a1 > this.inPk[1]) this.inPk[1] = a1;
+      }
+      if (this.inPk[0] >= 0.999 || this.inPk[1] >= 0.999) this.inOver = true;
+    } else { this.inL = this.inR = null; }
     let a = 0;
     while (a < N) {
       let seg = N - a;
-      if (this.playing) { this.fireDue(); const s = Math.max(1, Math.ceil(this.nextDt() - 1e-9)); if (s < seg) seg = s; }
+      if (this.playing) { this.curA = a; this.fireDue(); const s = Math.max(1, Math.ceil(this.nextDt() - 1e-9)); if (s < seg) seg = s; }
       const b = a + seg;
       for (const v of this.voices) if (v.active) v.render(this, bL, bR, a, b);
       for (const g of this.grains) if (g.active) g.render(bL, bR, a, b);
@@ -917,6 +981,7 @@ class ChiliProcessor extends AudioWorkletProcessor {
       a = b;
     }
     this.master(bL, bR, oL, oR, N);
+    this.capture(oL, oR, N);
     this.cpu += Date.now() - t0; this.cpuT += (N / this.sr) * 1000;
     return true;
   }
@@ -925,6 +990,7 @@ class ChiliProcessor extends AudioWorkletProcessor {
     const mc = this.mixC, mt = this.mixT, mK = this.mK, comp = this.comp, dl = this.mdel, vb = this.mverb, lim = this.lim, lu = this.lufs;
     for (let n = 0; n < N; n++) {
       let l = bL[n], r = bR[n];
+      if (this.monitor && this.inL) { l += this.inL[n]; r += this.inR[n]; }
       mc[0] += (mt[0] - mc[0]) * mK; mc[1] += (mt[1] - mc[1]) * mK; mc[2] += (mt[2] - mc[2]) * mK;
       if (mc[0] > 1e-5) { const g = comp.gain(l, r), k = mc[0]; l += (l * g - l) * k; r += (r * g - r) * k; }
       else comp.gr *= 0.999;
@@ -945,10 +1011,11 @@ class ChiliProcessor extends AudioWorkletProcessor {
       const rp = this.rip;
       this.port.postMessage({
         type: 'meter', pk: this.pk.slice(), over: this.over, lufs: lu.value(), gr: this.comp.gr, lim: 20 * Math.log10(Math.max(1e-6, this.limMin)),
+        inPk: this.inPk.slice(), inOver: this.inOver, capN: this.cap.active ? this.cap.total : -1,
         voices, cpu: this.cpuT > 0 ? this.cpu / this.cpuT : 0, posA: this.posA, posB: this.posB, sf: this.sf, collide: this.C.on, playing: this.playing,
         rip: rp.p.on ? { x: Array.from(rp.x), y: Array.from(rp.y), active: rp.active && !rp.ending, events: rp.events, learns: rp.learns, rBar: rp.rBar } : null,
       });
-      this.pk[0] = this.pk[1] = 0; this.over = false; this.limMin = 1; this.cpu = 0; this.cpuT = 0;
+      this.pk[0] = this.pk[1] = 0; this.inPk[0] = this.inPk[1] = 0; this.inOver = false; this.over = false; this.limMin = 1; this.cpu = 0; this.cpuT = 0;
     }
   }
 }
