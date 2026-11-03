@@ -307,26 +307,12 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 .helpbar span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mtabs { display: none; }
 
-/* ---------- Startseite: Audio-Gerät */
-.gate { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: radial-gradient(600px 400px at 50% 45%, rgba(70, 240, 210, 0.08), transparent 70%), #020507; transition: opacity .6s; }
-.gate-cv { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* ---------- Startseite: nur ein Knopf */
+.gate { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: #020507; transition: opacity .35s; }
 .gate.out { opacity: 0; pointer-events: none; }
-.gate-in { position: relative; display: flex; flex-direction: column; align-items: center; gap: 26px; padding: 26px 40px 30px; background: rgba(4, 9, 11, 0.82); border: 1px solid var(--line2); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(70, 240, 210, 0.1); clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px); }
-.gate-in::before { content: ''; position: absolute; top: 0; left: 14px; width: 60px; height: 2px; background: var(--hud); }
-.g-brand { display: flex; align-items: center; gap: 14px; }
-.logo.big { width: 46px; height: 46px; filter: drop-shadow(0 4px 20px rgba(255, 59, 47, 0.7)); }
-.gate h1 { font: 700 40px var(--disp); letter-spacing: 0.42em; margin-right: -0.42em; }
-.g-panel { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.g-lab { font: 700 9.5px var(--disp); letter-spacing: 0.4em; margin-right: -0.4em; color: var(--muted); }
-.g-lab.dim { color: var(--hud); animation: blink 1.6s steps(2) infinite; }
-.power { position: relative; width: 64px; height: 86px; padding: 8px; border: 1px solid #2c4248; background: linear-gradient(180deg, #0b1519, #050a0c); cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 7px; box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7); }
-.power .led { width: 9px; height: 9px; border-radius: 50%; background: #3a0b08; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6); transition: all .2s; }
-.power .rocker { flex: 1; width: 100%; display: flex; flex-direction: column; border: 1px solid #36525a; background: linear-gradient(180deg, #2a3e44 0%, #16242a 48%, #0c1519 52%, #121e23 100%); transform: perspective(120px) rotateX(10deg); transition: transform .15s; }
-.power .rocker i { flex: 1; display: grid; place-items: center; font: normal 700 11px var(--mono); color: #6f8b91; }
-.power:hover .rocker { border-color: var(--hud); } .power:hover .rocker i:first-child { color: var(--hud); }
-.gate.lit .power .led { background: var(--accent); box-shadow: 0 0 14px var(--accent), 0 0 4px #fff; }
-.gate.lit .power .rocker { transform: perspective(120px) rotateX(-12deg); }
-.gate.lit .power .rocker i:first-child { color: var(--accent); }
+.start-btn { padding: 14px 34px; background: transparent; border: 1px solid var(--hud); color: var(--hud); font: 700 13px var(--disp); letter-spacing: 0.3em; text-transform: uppercase; cursor: pointer; transition: background .15s, color .15s; }
+.start-btn:hover, .start-btn:focus-visible { background: var(--hud); color: var(--bg); outline: none; }
+.start-btn:disabled { opacity: 0.5; cursor: default; }
 .toasts { position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 5px; z-index: 70; pointer-events: none; }
 .toast { background: #071014; border: 1px solid var(--hud); color: var(--text); padding: 5px 12px; font: 600 10px var(--disp); letter-spacing: 0.08em; transition: opacity .4s, transform .4s; }
 .toast.err { border-color: var(--accent); }
@@ -362,7 +348,6 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
   .mtabs button.on { color: var(--hud); box-shadow: inset 0 2px 0 var(--hud); }
   .device:not([data-page="seq"]) .mtabs { display: none; }
   .sgrid { grid-template-columns: 1fr; } .page { padding: 10px; }
-  .gate h1 { font-size: 28px; } .gate-in { padding: 20px 24px; }
 }
 
 /* ---------- Rack verdichtet (v0.4.1) */

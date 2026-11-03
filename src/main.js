@@ -341,39 +341,10 @@ const mtabs = h('nav', { class: 'mtabs' }, [['seq', 'SEQ'], ['macro', 'MAKRO'], 
 function setMobile(id) { device.dataset.m = id; mtabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.m === id)); if (id === 'seq') V.stack.markDirty(); }
 const device = h('div', { class: 'device', 'data-m': 'seq' }, header, V.deck, pages.seq, pages.projects, pages.settings, helpbar, mtabs);
 
-/* Startseite: Audio-Gerät — animiertes Oszilloskop/Spektrum, Name, Power-Schalter */
-const gcv = h('canvas', { class: 'gate-cv' });
-const power = h('button', { class: 'power', 'aria-label': 'Audio starten' }, h('span', { class: 'led' }), h('span', { class: 'rocker' }, h('i', {}, 'I'), h('i', {}, 'O')));
-const gate = h('div', { class: 'gate' }, gcv,
-  h('div', { class: 'gate-in' },
-    h('div', { class: 'g-brand' }, h('span', { class: 'logo big', html: CHILI_SVG }), h('h1', {}, APP_NAME)),
-    h('div', { class: 'g-panel' }, h('div', { class: 'g-lab' }, 'POWER'), power, h('div', { class: 'g-lab dim' }, 'AUDIO ON'))));
-const ignite = () => { gate.classList.add('lit'); ensureAudio().then(() => { setTimeout(() => gate.classList.add('out'), 380); setTimeout(() => gate.remove(), 1000); }).catch(() => gate.classList.remove('lit')); };
-power.addEventListener('click', ignite);
-(function gateAnim(t0) {
-  const step = (now) => {
-    if (!gate.isConnected) return; requestAnimationFrame(step);
-    const dpr = devicePixelRatio || 1, W = gcv.clientWidth, H = gcv.clientHeight; if (!W) return;
-    if (gcv.width !== Math.round(W * dpr)) { gcv.width = Math.round(W * dpr); gcv.height = Math.round(H * dpr); }
-    const g = gcv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
-    const t = (now - t0) / 1000, lit = gate.classList.contains('lit'), amp = lit ? 1.6 : 1;
-    // Spektrum unten
-    const bars = 72, bw = W / bars;
-    for (let i = 0; i < bars; i++) {
-      const f = i / bars, v = (0.35 + 0.65 * Math.abs(Math.sin(t * (0.7 + f * 2.3) + i * 0.37) * Math.cos(t * 0.53 + i * 0.11))) * (1 - f * 0.55) * amp;
-      const hh = v * H * 0.22, grad = g.createLinearGradient(0, H, 0, H - hh); grad.addColorStop(0, 'rgba(13,107,93,0.55)'); grad.addColorStop(1, lit ? 'rgba(255,59,47,0.7)' : 'rgba(255,162,26,0.45)');
-      g.fillStyle = grad; g.fillRect(i * bw + 1, H - hh, bw - 2, hh);
-    }
-    // Oszilloskop-Spuren
-    for (const [k, col, a] of [[0, 'rgba(70,240,210,0.65)', 1], [1, 'rgba(255,59,47,0.55)', 0.7], [2, 'rgba(70,240,210,0.2)', 0.5]]) {
-      g.strokeStyle = col; g.lineWidth = k === 0 ? 1.6 : 1; g.shadowColor = col; g.shadowBlur = 8; g.beginPath();
-      for (let x = 0; x <= W; x += 3) { const u = x / W, y = H * 0.5 + Math.sin(u * 18 + t * (2 + k)) * Math.sin(u * 3.1 - t * 0.7) * H * 0.09 * a * amp + Math.sin(u * 61 + t * 5) * H * 0.012; x ? g.lineTo(x, y) : g.moveTo(x, y); }
-      g.stroke();
-    }
-    g.shadowBlur = 0;
-  };
-  requestAnimationFrame(step);
-})(performance.now());
+/* Startseite: nur ein Knopf */
+const startBtn = h('button', { class: 'start-btn' }, 'Audio starten');
+const gate = h('div', { class: 'gate' }, startBtn);
+startBtn.addEventListener('click', () => { startBtn.disabled = true; ensureAudio().then(() => { gate.classList.add('out'); setTimeout(() => gate.remove(), 400); }).catch(() => { startBtn.disabled = false; }); });
 root.append(device, gate, h('div', { class: 'toasts' }));
 setMobile('seq'); go('seq');
 
