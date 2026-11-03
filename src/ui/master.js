@@ -10,13 +10,14 @@ const dbToPos = (d) => Math.pow(10, d / 40);
 export function masterFxView(app) {
   const M = () => app.project.master, rows = [];
   const sections = MASTER_GROUPS.map((g) => {
-    const row = paramRow(g.params, (k) => M()[g.id][k], (k, v) => { M()[g.id][k] = v; app.commit(); });
+    const row = paramRow(g.params, (k) => M()[g.id][k], (k, v) => { M()[g.id][k] = v; app.commit(); }, { small: true });
     rows.push(row);
     const extra = g.id === 'comp' ? h('div', { class: 'grbar', 'data-help': 'Gain-Reduktion des Compressors.' }, h('span', {})) : null;
-    return h('div', { class: `msec m-${g.id}` }, h('h4', {}, g.title, extra), row);
+    row.classList.add('tight');
+    return h('div', { class: `fxrow m-${g.id}` }, h('div', { class: 'fxl' }, h('span', {}, g.title === 'Compressor' ? 'COMP' : g.title.toUpperCase()), extra), row);
   });
   const grFill = sections[0].querySelector('.grbar span');
-  const el = h('div', { class: 'bay-sec' }, sections);
+  const el = h('section', { class: 'mod fx', 'data-help': 'FX: Compressor, Delay und Reverb auf dem Master — Dry/Wet je Effekt.' }, h('header', { class: 'mh' }, h('span', { class: 'mtitle' }, 'FX')), sections);
   el.meter = (m) => { grFill.style.width = `${Math.min(100, (-m.gr / 24) * 100)}%`; };
   el.refresh = () => rows.forEach((r) => r.refresh());
   return el;
@@ -28,34 +29,30 @@ export function filterView(app) {
   const F = () => app.project.master.filter;
   const set = (k, v) => { F()[k] = v; app.commit(); el.dirty = true; };
   const sw = h('button', { class: 'switch', 'data-help': 'Master-Filter ein/aus (klickfrei überblendet).', onclick: () => { F().on = !F().on; app.commit(); el.refresh(); } });
-  const types = h('div', { class: 'tgrid' }, MF_TYPES.map(([v, l]) => h('button', { 'data-v': v, onclick: () => { set('type', v); el.refresh(); } }, l)));
-  const slope = h('div', { class: 'seg', 'data-help': 'Flankensteilheit (für LP/BP/HP/Notch): 12 bis 48 dB pro Oktave.' }, [1, 2, 3, 4].map((n) => h('button', { 'data-n': n, onclick: () => { set('slope', n); el.refresh(); } }, `${n * 12}`)));
-  const cv = h('canvas', { class: 'resp', 'data-help': 'Frequenzgang des Master-Filters. Die Linien zeigen die modulierte Position links (rot) und rechts (cyan) in Echtzeit.' });
-  const k = (key, help) => { const c = knob(D[key], () => F()[key], (v) => set(key, v)); if (help) c.dataset.help = help; return c; };
-  const main = h('div', { class: 'prow' }, k('cutoff'), k('res'), k('drive', 'Drive vor dem Filter — ADAA-Sättigung, aliasarm.'));
-  const ctx = h('div', { class: 'prow' });
-  const envRow = h('div', { class: 'prow' }, k('envAmt', 'Hüllkurvenfolger: wie stark der Eingangspegel den Cutoff verschiebt (± Oktaven).'), k('envAtk'), k('envRel'));
-  const lfoSync = select(D.lfoSync, () => F().lfoSync, (v) => { set('lfoSync', v); el.refresh(); });
-  const lfoShape = select(D.lfoShape, () => F().lfoShape, (v) => set('lfoShape', v));
+  const typeSel = h('select', { class: 'sel', 'data-help': 'Filtertyp: LP, BP, HP, Notch, Peak, Shelf, Comb ±, Formant.', onchange: (e) => { set('type', e.target.value); el.refresh(); } }, MF_TYPES.map(([v, l]) => h('option', { value: v }, l)));
+  const slope = h('div', { class: 'seg mini', 'data-help': 'Flankensteilheit (LP/BP/HP/Notch): 12 bis 48 dB pro Oktave.' }, [1, 2, 3, 4].map((n) => h('button', { 'data-n': n, onclick: () => { set('slope', n); el.refresh(); } }, `${n * 12}`)));
+  const cv = h('canvas', { class: 'resp', 'data-help': 'Frequenzgang des Master-Filters — die Kurve bewegt sich mit der Modulation (links rot, rechts cyan).' });
+  const k = (key, help) => { const c = knob(D[key], () => F()[key], (v) => set(key, v), { small: true }); if (help) c.dataset.help = help; return c; };
+  const ctx = h('span', { class: 'ctxk' });
+  const lfoSync = h('select', { class: 'sel', 'data-help': 'LFO frei (Rate-Knopf) oder tempo-synchron.', onchange: (e) => { set('lfoSync', e.target.value); el.refresh(); } }, D.lfoSync.o.map(([v, l]) => h('option', { value: v }, l)));
+  const lfoShape = h('select', { class: 'sel', 'data-help': 'LFO-Form.', onchange: (e) => set('lfoShape', e.target.value) }, D.lfoShape.o.map(([v, l]) => h('option', { value: v }, l)));
   const lfoRate = k('lfoRate');
-  const lfoRow = h('div', { class: 'prow' }, k('lfoDepth'), lfoRate, lfoSync, lfoShape);
-  const stRow = h('div', { class: 'prow' }, k('stereo', 'Phasenversatz des LFO zwischen links und rechts (bis 180°).'), k('spreadOct', 'Fester Cutoff-Versatz zwischen links und rechts.'), k('mix'), k('out'));
-  const el = h('div', { class: 'bay-sec mfilter' },
-    h('header', { class: 'ph' }, h('span', { class: 'ptitle' }, 'Master-Filter'), sw),
-    cv, types, h('div', { class: 'rowline' }, h('span', { class: 'tlabel' }, 'dB/Okt'), slope),
-    h('div', { class: 'msec' }, h('h4', {}, 'Filter'), main, ctx),
-    h('div', { class: 'msec' }, h('h4', {}, 'Hüllkurvenfolger'), envRow),
-    h('div', { class: 'msec' }, h('h4', {}, 'LFO'), lfoRow),
-    h('div', { class: 'msec' }, h('h4', {}, 'Stereo & Ausgang'), stRow));
+  const el = h('section', { class: 'mod mfilter', 'data-help': 'Master-Filter vor den FX.' },
+    h('header', { class: 'mh' }, h('span', { class: 'mtitle' }, 'FILTER'), typeSel, slope, sw),
+    cv,
+    h('div', { class: 'prow tight' }, k('cutoff'), k('res'), k('drive', 'Drive vor dem Filter — ADAA-Sättigung, aliasarm.'), ctx, k('mix'), k('out')),
+    h('div', { class: 'prow tight' }, k('envAmt', 'Hüllkurvenfolger: der Eingangspegel verschiebt den Cutoff (± Oktaven).'), k('envAtk'), k('envRel'), k('stereo', 'Phasenversatz des LFO zwischen links und rechts (bis 180°).'), k('spreadOct', 'Fester Cutoff-Versatz zwischen links und rechts.')),
+    h('div', { class: 'prow tight lfo' }, h('span', { class: 'tlabel' }, 'LFO'), k('lfoDepth'), lfoRate, h('div', { class: 'lfosel' }, lfoSync, lfoShape)));
   const knobs = () => el.querySelectorAll('.knob, .field');
   el.refresh = () => {
     const f = F();
     sw.classList.toggle('on', f.on); el.classList.toggle('off', !f.on);
-    types.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === f.type));
+    typeSel.value = f.type; lfoSync.value = f.lfoSync; lfoShape.value = f.lfoShape;
     slope.querySelectorAll('button').forEach((b) => b.classList.toggle('on', +b.dataset.n === f.slope));
     slope.style.opacity = ['lp', 'bp', 'hp', 'notch'].includes(f.type) ? '' : '0.35';
     ctx.innerHTML = '';
     if (['peak', 'lshelf', 'hshelf'].includes(f.type)) ctx.append(k('gain'));
+    if (!ctx.childNodes.length) ctx.append(h('span', { class: 'kph' }));
     if (f.type === 'formant') ctx.append(k('vowel', 'Vokal-Morph A–E–I–O–U. Cutoff verschiebt die Formanten.'));
     lfoRate.style.display = f.lfoSync === 'off' ? '' : 'none';
     knobs().forEach((c) => c.update && c.update());
@@ -63,8 +60,8 @@ export function filterView(app) {
   };
   /* Frequenzgang (analytisch, wie die Engine rechnet) */
   let live = null; el.meter = (m) => { live = m.mf; };
-  function mag(f) {
-    const p = F(), sr = app.engine.sampleRate || 48000, fc = Math.min(p.cutoff, 0.45 * sr);
+  function mag(f, fcIn) {
+    const p = F(), sr = app.engine.sampleRate || 48000, fc = Math.min(fcIn || p.cutoff, 0.45 * sr);
     const w = Math.tan((Math.PI * f) / sr) / Math.tan((Math.PI * fc) / sr); // vorverzerrte Frequenz
     const svf = (k) => { const re = 1 - w * w, im = k * w, den = re * re + im * im; return { lp: 1 / Math.sqrt(den), bp: (k * w) / Math.sqrt(den), hp: (w * w) / Math.sqrt(den), no: Math.abs(re) / Math.sqrt(den) }; };
     const t = p.type;
@@ -86,7 +83,7 @@ export function filterView(app) {
     }
     if (t === 'comb' || t === 'combn') { const fb = (t === 'comb' ? 1 : -1) * (0.3 + 0.68 * p.res), D = sr / fc, ph = (2 * Math.PI * f * D) / sr; const re = 1 - fb * Math.cos(ph), im = fb * Math.sin(ph); return (1 - Math.abs(fb) * 0.75) / Math.sqrt(re * re + im * im); }
     if (t === 'formant') {
-      const V = [[730, 1090, 2440], [530, 1840, 2480], [270, 2290, 3010], [570, 840, 2410], [300, 870, 2240]], v = Math.min(4, Math.max(0, p.vowel)), i0 = Math.min(3, Math.floor(v)), fr = v - i0, sh = Math.min(3.5, Math.max(0.3, Math.sqrt(p.cutoff / 1000))), k = 0.25 - p.res * 0.2;
+      const V = [[730, 1090, 2440], [530, 1840, 2480], [270, 2290, 3010], [570, 840, 2410], [300, 870, 2240]], v = Math.min(4, Math.max(0, p.vowel)), i0 = Math.min(3, Math.floor(v)), fr = v - i0, sh = Math.min(3.5, Math.max(0.3, Math.sqrt(fc / 1000))), k = 0.25 - p.res * 0.2;
       let s = 0; [1, 0.5, 0.28].forEach((gn, j) => { const F0 = (V[i0][j] + (V[i0 + 1][j] - V[i0][j]) * fr) * sh, x = f / F0, re = 1 - x * x, im = k * x; s += (gn * k * x) / Math.sqrt(re * re + im * im); });
       return s * 1.6;
     }
@@ -102,15 +99,13 @@ export function filterView(app) {
     g.strokeStyle = css('--grid'); g.lineWidth = 1; g.font = '9px JetBrains Mono, monospace'; g.fillStyle = css('--dim');
     for (const f of [50, 100, 200, 500, 1000, 2000, 5000, 10000]) { const x = Math.round(fx(f)) + 0.5; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); g.fillText(f >= 1000 ? `${f / 1000}k` : f, x + 2, H - 3); }
     for (const d of [-24, -12, 0, 12]) { const y = Math.round(dy(d)) + 0.5; g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
-    const on = F().on;
-    g.beginPath();
-    for (let x = 0; x <= W; x += 2) { const f = 20 * Math.pow(1000, x / W), d = 20 * Math.log10(Math.max(1e-6, mag(f))); const y = dy(Math.max(-60, Math.min(36, d))); x ? g.lineTo(x, y) : g.moveTo(x, y); }
-    g.strokeStyle = on ? css('--accent') : css('--dim'); g.lineWidth = 2; g.stroke();
-    g.lineTo(W, H); g.lineTo(0, H); g.closePath(); g.fillStyle = on ? 'rgba(255,59,47,0.10)' : 'rgba(255,255,255,0.03)'; g.fill();
-    if (on && live) {
-      for (const [f, c] of [[live.l, css('--accent')], [live.r, css('--cool')]]) { const x = fx(f); g.strokeStyle = c; g.globalAlpha = 0.8; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
-      g.globalAlpha = 1; g.fillStyle = css('--hud'); g.fillRect(4, 4, Math.min(1, live.e * 1.6) * 60, 3);
-    }
+    const on = F().on, base = F().cutoff;
+    const curve = (fc) => { g.beginPath(); for (let x = 0; x <= W; x += 2) { const f = 20 * Math.pow(1000, x / W), d = 20 * Math.log10(Math.max(1e-6, mag(f, fc))); const y = dy(Math.max(-60, Math.min(36, d))); x ? g.lineTo(x, y) : g.moveTo(x, y); } };
+    const fl = on && live ? live.l : base, fr = on && live ? live.r : base;
+    if (on && Math.abs(Math.log(fr / fl)) > 0.01) { curve(fr); g.strokeStyle = css('--cool'); g.globalAlpha = 0.75; g.lineWidth = 1.3; g.stroke(); g.globalAlpha = 1; }
+    curve(fl); g.strokeStyle = on ? css('--accent') : css('--dim'); g.lineWidth = 2; g.stroke();
+    g.lineTo(W, H); g.lineTo(0, H); g.closePath(); g.fillStyle = on ? 'rgba(255,59,47,0.12)' : 'rgba(255,255,255,0.03)'; g.fill();
+    if (on && live) { g.fillStyle = css('--hud'); g.fillRect(4, 4, Math.min(1, live.e * 1.6) * 50, 2); }
   }
   requestAnimationFrame(draw);
   return el;
@@ -127,7 +122,7 @@ export function outView(app) {
   const over = h('button', { class: 'over', 'data-help': 'OVER: Signal vor dem Limiter über 0 dBFS. Klick setzt zurück.', onclick: () => over.classList.remove('on') }, 'OVER');
   const fader = h('div', { class: 'fader', tabindex: 0, 'data-help': 'Master-Fader — maximal 0 dB, klickfrei geglättet. Doppelklick: 0 dB · Shift: fein.' }, scale, track);
   const el = h('aside', { class: 'out' },
-    h('div', { class: 'out-t' }, 'OUT'), over,
+    h('div', { class: 'out-t' }, 'MASTER'), over,
     h('div', { class: 'f-wrap' }, fader, meter), fval,
     h('div', { class: 'readouts' },
       h('div', { 'data-help': 'Sample-Peak (Hold).' }, h('span', {}, 'PK'), read.pk), h('div', { 'data-help': 'Lautheit Momentary nach ITU-R BS.1770.' }, h('span', {}, 'LUFS'), read.lufs),

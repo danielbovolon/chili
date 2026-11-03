@@ -4,7 +4,7 @@
  *  2. Aliasing Synth: Sägezahn auf C8 → Energie außerhalb der Harmonischen
  *  3. Aliasing Sampler: 15-kHz-Sinus +12 st hochgepitcht (→ 30 kHz > Nyquist) muss verschwinden
  *  4. Echtzeitfaktor (CPU) */
-import { makeStep, masterDefaults, collideDefaults, ripDefaults, macroDefaults, chaosDefaults, MF_TYPES } from '../src/state/params.js';
+import { makeStep, masterDefaults, ripDefaults, macroDefaults, chaosDefaults, genvDefaults, MF_TYPES } from '../src/state/params.js';
 import { chaosKeys } from '../src/state/project.js';
 
 const SR = 48000;
@@ -25,7 +25,7 @@ function render(p, seconds) {
   return { L, R };
 }
 function state(steps, extra = {}) {
-  return { bpm: 120, division: '1/16', swing: 0, len: 16, steps, slices: extra.slices || [], collide: extra.collide || collideDefaults(), rip: extra.rip || ripDefaults(), master: extra.master || masterDefaults() };
+  return { bpm: 120, division: '1/16', swing: 0, len: 16, steps, slices: extra.slices || [], genv: extra.genv || genvDefaults(), rip: extra.rip || ripDefaults(), master: extra.master || masterDefaults() };
 }
 function dft(x, f) { let re = 0, im = 0; for (let i = 0; i < x.length; i++) { const w = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (x.length - 1)); re += x[i] * w * Math.cos((2 * Math.PI * f * i) / SR); im -= x[i] * w * Math.sin((2 * Math.PI * f * i) / SR); } return Math.hypot(re, im) / x.length; }
 
@@ -40,13 +40,13 @@ for (let i = 0; i < n; i++) { const t = i / SR, env = Math.exp(-((t * 4) % 1) * 
   const steps = Array.from({ length: 32 }, (_, i) => makeStep({
     source: i % 3 === 0 ? 'synth' : 'sample', slice: i % 8, note: 40 + (i * 7) % 40, pitch: (i % 5) * 5 - 10, gate: 2, fType: 'lp', cutoff: 800, res: 0.9, fEnvAmt: 6, fEnvShape: 'random', fEnvLoop: true,
     mutate: 1, panRnd: 1, panModDepth: 1, autopan: 1, tremDepth: 1, tremShape: 'square', pmDepth: 3, phaserMix: 1, phaserFb: 0.9, flangerMix: 1, flangerFb: 0.9, chorusMix: 1,
-    delayMix: 1, delayFb: 0.95, verbMix: 1, verbDecay: 12, gain: 6, reverse: i % 2 === 1, loop: i % 4 === 1,
+    delayMix: 1, delayFb: 0.95, verbMix: 1, verbDecay: 12, gain: 6, reverse: i % 2 === 1, loop: i % 4 === 1, grMode: i % 3 === 2, grPitch: 12, grSpray: 1, grDensity: 200, grSize: 300,
   }));
   const master = masterDefaults(); master.comp.mix = 1; master.delay.mix = 0.5; master.delay.fb = 0.9; master.verb.mix = 0.6; master.verb.decay = 20; master.fader = 1;
-  const collide = { ...collideDefaults(), on: true, energy: 1, accel: 1, ratio: 2.5 };
+  const genv = genvDefaults(); genv.amp.on = true; genv.flt.on = true; genv.flt.amt = 8;
   const rip = { ...ripDefaults(), on: true, chance: 1, plast: 1, pitch: 12 };
   p.onMsg({ type: 'settings', panLaw: 'm3', limiter: true, ceiling: -0.3, refA: 440 });
-  p.onMsg({ type: 'state', state: state(steps, { slices, master, collide, rip }) });
+  p.onMsg({ type: 'state', state: state(steps, { slices, master, genv, rip }) });
   p.onMsg({ type: 'play', on: true });
   const t0 = performance.now(); const out = render(p, 20); const ms = performance.now() - t0;
   let finite = true, pk = 0; for (let i = 0; i < out.L.length; i++) { const a = out.L[i], b = out.R[i]; if (!Number.isFinite(a) || !Number.isFinite(b)) { finite = false; break; } pk = Math.max(pk, Math.abs(a), Math.abs(b)); }
@@ -191,6 +191,42 @@ for (const lobes of [12, 16, 24]) {
   const stepN = (240 / 120) / 16 * SR;
   const first = starts.filter((x) => x < stepN);
   ok(first.length === 4, `Ratchet 4: ${first.length} Anschläge im ersten Step (Abstand ≈ ${Math.round(stepN / 4)} Samples, Blockraster 128)`);
+}
+
+/* 11. Globale Amp-Hüllkurve überstimmt die Step-Hüllkurve */
+{
+  const rms = (genvOn) => {
+    const p = mk(); const g = genvDefaults(); Object.assign(g.amp, { on: genvOn, amt: 1, atk: 0, dec: 40, sus: 0, rel: 20 });
+    p.onMsg({ type: 'settings', limiter: false });
+    p.onMsg({ type: 'state', state: state([makeStep({ source: 'synth', note: 57, gate: 16, sus: 1, atk: 0 }), ...Array.from({ length: 31 }, () => makeStep({ on: false }))], { genv: g }) });
+    p.onMsg({ type: 'audition', step: 0 }); const o = render(p, 0.6).L.slice(SR * 0.4, SR * 0.6);
+    let r = 0; for (const v of o) r += v * v; return Math.sqrt(r / o.length);
+  };
+  const a = rms(false), b = rms(true);
+  ok(a > 0.05 && b < a * 0.001, `Globale Amp-Hüllkurve (Decay 40 ms, Sustain 0): Pegel nach 0.4 s ${db(a).toFixed(1)} → ${db(b).toFixed(1)} dB`);
+}
+/* 12. Globale Filter-Hüllkurve: wirkt auch auf Steps ohne eigenen Filter */
+{
+  const hi = (on) => {
+    const p = mk(); const g = genvDefaults(); Object.assign(g.flt, { on, amt: -8, atk: 0, dec: 30, sus: 1, rel: 50 });
+    p.onMsg({ type: 'settings', limiter: false });
+    p.onMsg({ type: 'state', state: state([makeStep({ source: 'synth', note: 45, osc1: 'saw', osc2: 'saw', gate: 16, sus: 1, atk: 0, fType: 'off', cutoff: 12000 }), ...Array.from({ length: 31 }, () => makeStep({ on: false }))], { genv: g }) });
+    p.onMsg({ type: 'audition', step: 0 }); const o = render(p, 0.5).L.slice(SR * 0.25, SR * 0.25 + 8192);
+    return dft(o, 440 * Math.pow(2, (45 - 69) / 12) * 20);
+  };
+  const a = db(hi(false)), b = db(hi(true));
+  ok(b < a - 30, `Globale Filter-Hüllkurve −8 Okt auf Step ohne Filter: 20. Oberton ${a.toFixed(1)} → ${b.toFixed(1)} dB`);
+}
+/* 13. Granular: 12 Stimmen, Kornrate 200/s, Pitch-Streuung ±24 st → stabil, aliasarm, Last */
+{
+  const p = mk(); const n = SR * 2, a = new Float32Array(n); for (let i = 0; i < n; i++) a[i] = 0.5 * Math.sin((2 * Math.PI * 9000 * i) / SR);
+  p.onMsg({ type: 'sample', id: 'g', L: a, R: a.slice() }); p.onMsg({ type: 'settings', limiter: false });
+  const steps = Array.from({ length: 32 }, () => makeStep({ source: 'sample', slice: 0, gate: 16, sus: 1, grMode: true, grDensity: 200, grSize: 60, grPitch: 24, grSpray: 1, grScan: 1 }));
+  p.onMsg({ type: 'state', state: state(steps, { slices: [{ sampleId: 'g', a: 0, b: 1 }] }) });
+  for (let k = 0; k < 12; k++) p.onMsg({ type: 'audition', step: k });
+  const t0 = performance.now(); const o = render(p, 4); const ms = performance.now() - t0;
+  let fin = true, pk = 0; for (const v of o.L) { if (!Number.isFinite(v)) fin = false; pk = Math.max(pk, Math.abs(v)); }
+  ok(fin && pk > 0.01, `Granular: 12 Stimmen × 200 Körner/s, ±24 st — stabil (Peak ${db(pk).toFixed(1)} dBFS), Last ${((ms / 4000) * 100).toFixed(1)} % Echtzeit`);
 }
 
 console.log(fails ? `\n${fails} Test(s) fehlgeschlagen` : '\nAlle Tests bestanden 🌶');

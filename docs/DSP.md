@@ -5,11 +5,9 @@ Alles Hörbare entsteht in `src/audio/chili-processor.js`, einem einzigen `Audio
 ## Signalfluss
 
 ```
-Clock (sample-genau) ─┬─ Strahl A ──┐
-                      └─ Strahl B ──┤ (Collide)
-                                    ▼
+Clock (sample-genau) ── Steps ──┐
+                                 ▼
             Voices (Sampler | Synth) → Filter → Amp-Env → Phaser → Flanger → Chorus → Pan → Delay → Reverb ─┐
-            Collide-Grains ──────────────────────────────────────────────────────────────────────────────┤
                                                                                                           ▼
                                                                                          Sequencer-Bus → Rip
                                                                                                           ▼
@@ -18,7 +16,6 @@ Clock (sample-genau) ─┬─ Strahl A ──┐
 
 ## Clock
 - Zeit in Samples als Double, Events werden innerhalb eines Render-Quantums an die exakte Sampleposition gelegt: der Block wird an jedem Event in Segmente geteilt. Kein Drift, kein `setTimeout`-Jitter.
-- Collide-Modus: Strahlpositionen kontinuierlich in Step-Einheiten; nächster Event = Minimum aus Strahl-A-Step, Strahl-B-Step und analytisch berechnetem Kollisionszeitpunkt `gap / (1 + rB)`.
 
 ## Quellen
 - **Sampler:** Windowed-Sinc-Interpolation (Blackman-Harris, 512 Phasen, linear zwischen Phasen). Bei Pitch-Up wird der Kernel um `1/ratio` gestreckt (echtes Anti-Aliasing statt Aliasing-behaftetem linearem Resampling). Bei exakt ganzzahliger Position und Pitch 0 wird direkt kopiert → bit-transparent. 1-ms-Kantenblenden an Slice-Grenzen verhindern Klicks bei Schnitten mitten in der Welle.
@@ -31,9 +28,6 @@ Clock (sample-genau) ─┬─ Strahl A ──┐
 
 ## Mutate
 Pro Auslösung: neue Zufallsfrequenzen (0.35–2.25 × Tempo, Vorzeichen zufällig) und -phasen für 5 Dimensionen, je Summe zweier Sinus. Einsatz erst ab `Attack + Schutzzeit`, 25 ms Einblendung. Der Ansatz ist damit sample-identisch bei jeder Wiederholung.
-
-## Collide
-Kollision → 3…80 Grains (Hann-Fenster, 6–76 ms) aus den Slices beider beteiligter Steps (bei Synth-Steps: Sinus-Pings im Obertonraster). Startzeiten exponentialverteilt (Schauer), Pitch/Pan-Streuung skaliert mit Energie und Strahlgeschwindigkeit. Grains nutzen denselben Sinc-Reader.
 
 ## Rip
 - Ringpuffer 8 s des Sequencer-Busses.
@@ -62,6 +56,12 @@ Kollision → 3…80 Grains (Hann-Fenster, 6–76 ms) aus den Slices beider bete
 - **Master-Filter:** ZDF-SVF; LP/BP/HP/Notch als Kaskade aus 1–4 Stufen mit Butterworth-Dämpfung `k = 2·cos((2i+1)π/4N)`, Resonanz skaliert nur die letzte Stufe; Peak/Shelf nach Simper (A = 10^(gain/40)); Comb mit Hermite-Delay; Formant aus 3 parallelen Bandpässen. Modulation (Env-Follower, LFO, Stereo-Phase) mit Control-Rate und linearer Interpolation der Koeffizienten. Bypass bit-transparent, Ein-/Ausschalten über 20 ms überblendet, Zustände beim Einschalten gelöscht, NaN-Sicherheitsnetz.
 - **Surround:** nach dem Pan ein Einpol-Tiefpass (20 kHz → ~4 kHz) und −2.8 dB bei „hinten", Seitenanteil verbreitert; Orbit moduliert Pan (sin) und Tiefe (cos). Spread: M/S-Skalierung, beim Synth Seitensignal aus der Oszillator-Differenz. Alle Pfade bei neutralen Werten übersprungen.
 - **CPU-Schutz:** gleitender Mittelwert der Blockrechenzeit; über 85 % wird alle 6 Blöcke die älteste Stimme (bevorzugt im Ausklang) in 6 ms ausgeblendet.
+
+## v0.4: Granular, globale Hüllkurven, Collide entfernt
+- **Granular:** pro Stimme bis 12 Körner (vorallokiert). Neues Korn alle `sr/Kornrate` Samples (±30 % Jitter) an Lesekopf + Streuung; Pitch pro Korn = Step-Rate · 2^(±Streuung/12); Hann-Fenster (1024 Punkte, interpoliert); Lesen mit Hermite bis Rate 1, darüber Windowed-Sinc mit fc = 1/Rate. Normierung 1/√Überlappung. Der Lesekopf läuft mit Rate · Scan und wickelt im Slice.
+- **Globale Amp-Hüllkurve:** Mischung der Step-ADSR mit der globalen beim Anschlag (Menge 0–1).
+- **Globale Filter-Hüllkurve:** eigene ADSR pro Stimme mit Control-Rate (16 Samples), addiert Menge × Hüllkurve in Oktaven zum Cutoff; erzwingt einen Lowpass, wenn der Step keinen Filter hat.
+- **Collide** wurde komplett entfernt (Engine, Zustand, UI).
 
 ## Voices
 - Pool `maxVoices + 4`, alles vorallokiert (keine Garbage Collection im Audio-Thread).

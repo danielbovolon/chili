@@ -1,6 +1,8 @@
-# 🌶 Chili — v0.3
+# 🌶 Chili — v0.4
 
-**Ein Step-Sequencer wie die Konsole eines Raumschiffs.** Importiertes Audio oder Synth, 4–32 Steps, jeder Parameter jedes Steps direkt zeichenbar, acht Makros, die Klang und Struktur der ganzen Sequenz umbauen, ein Zufallsmodulator für unendliche Komplexität — und drei eigene Systeme: **Mutate**, **Collide**, **Rip**.
+**Ein Step-Sequencer wie die Konsole eines Raumschiffs.** Importiertes Audio oder Synth, 4–32 Steps, jeder Parameter jedes Steps direkt zeichenbar, acht Makros, die Klang und Struktur der ganzen Sequenz umbauen, ein Zufallsmodulator für unendliche Komplexität — und drei eigene Systeme: **Mutate**, **Chaos**, **Rip**.
+
+Der App-Name steht an einer einzigen Stelle (`APP_NAME` in `src/main.js`) — Umbenennen ist eine Zeile.
 
 Reines Web Audio. Die gesamte Klangerzeugung läuft sample-genau in einem einzigen `AudioWorklet`, ohne Fremdbibliotheken. Läuft auf Desktop und Phone.
 
@@ -14,18 +16,40 @@ Browser: Chrome/Edge empfohlen. `file://` geht nicht (AudioWorklet braucht http/
 
 ---
 
-## Aufbau der Konsole
+## Aufbau der Konsole (kompakt, alles auf einen Blick)
 
 | Bereich | Inhalt |
 |---|---|
-| **Deck** | Play · Bounce · Tempo-LCD (BPM / Hz / Note) · Steps · Raster · **Laufrichtung** · Swing · globale Würfel · Pattern-Werkzeuge · Undo |
-| **Makro** | Heat · Dichte · Warp · Ton · Pitch · Länge · Raum · Chaos |
-| **Viewport** | WAVE: Sample, Slices, Live-Abspielköpfe · SCOPE: Oszilloskop + Spektrum · FELD: Surround-Feld mit jeder Stimme im Raum + Goniometer |
-| **Layer-Stack** | 14 Layer, jeder Parameter eine Lane über alle Steps |
-| **Bay** | MASTER (Comp/Delay/Reverb) · FILTER (Master-Filter) · CHAOS · COLLIDE · RIP · REC |
-| **OUT** | Master-Fader (max. 0 dB), LED-Meter, Peak, LUFS, Limiter, DSP |
+| **Deck** (eine Zeile) | Play · Bounce · Tempo-LCD (BPM / Hz / Note) · Steps · Raster · Laufrichtung · Swing · 8 Makros · globale Würfel · Pattern · Undo |
+| **Sample** | kompakte Wellenform mit Zoom, Übersicht, Slices, Live-Abspielköpfen · Slice-Modi · **⟁ Peaks** |
+| **Layer-Stack** | 15 Layer, jeder Parameter eine Lane über alle Steps |
+| **Rack** (ohne Tabs, alles sichtbar) | MONITOR (Oszilloskop + Spektrum) · SURROUND · AMP-ENV · FILTER-ENV · REC · FILTER · FX · CHAOS · RIP |
+| **MASTER** | Fader (max. 0 dB), LED-Meter, Peak, LUFS, Limiter, DSP |
 
-Auf dem Phone teilt eine Tab-Leiste die Konsole in **SEQ · MAKRO · MODULE · OUT**. Die Hilfeleiste unten erklärt jedes Element, über dem die Maus steht.
+Bei 1440×900 und 1920×1080 passt das ganze Rack ohne Scrollen. Auf dem Phone teilt eine Tab-Leiste die Konsole in **SEQ · MAKRO · RACK · MASTER**.
+Knobs im Ableton-Stil: Name oben, Bogen mit Zeiger, Wert unten — ziehen, Shift fein, Mausrad, Doppelklick = Standardwert.
+
+### Sample navigieren
+Mausrad zoomt um den Cursor · Shift+Rad oder horizontal wischen verschiebt · Ziehen auf freier Fläche verschiebt · Klick auf eine Slice-Nummer zoomt auf den Slice · **− + ⤢** · Übersichtsleiste darunter: Fenster ziehen, Doppelklick = alles.
+Marker ziehen ändert Slice-Grenzen, Doppelklick setzt einen Marker, Rechtsklick entfernt ihn.
+
+### ⟁ Peaks finden
+Sucht die stärksten Einschwingvorgänge im ganzen Sample (logarithmischer Energiefluss, Mindestabstand 45 ms), schneidet kurz vor jedem Peak auf dem nächsten Nulldurchgang und legt einen Peak auf jeden Step.
+
+### Granular
+Jeder Sample-Step kann granular spielen (Layer „Granular"): Korngröße 5–500 ms, Kornrate 1–200/s, Position, Streuung, Scan (Lesegeschwindigkeit, 0 = Freeze, negativ = rückwärts), Pitch-Streuung bis ±24 st, Stereobreite. Körner mit Hann-Fenster; bei Pitch-Up mit Sinc-Anti-Aliasing gelesen. Presets: Wolke, Freeze, Stotter, Shimmer, Rückwärts-Nebel.
+
+### Globale Hüllkurven
+- **AMP-ENV** wirkt auf jeden Step; „Menge" blendet zwischen der Hüllkurve des Steps und der globalen.
+- **FILTER-ENV** verschiebt den Cutoff jedes Steps um ±8 Oktaven; Steps ohne eigenen Filter bekommen dafür einen Lowpass.
+- Beide zeigen live, wo die zuletzt angeschlagene Stimme gerade auf der Kurve steht.
+
+### Surround-Panner
+Kreisfeld mit Hörer und 5.1-Lautsprechern. Jeder Step ist ein Punkt — direkt ziehen setzt Pan und Tiefe. Orbit-Bahnen werden gezeigt, klingende Stimmen leuchten.
+**5 Presets:** Bühne · Kreis · Spirale · Orbit · Schwarm (dazu ⟲ Mitte).
+
+### Master-Filter
+Der Frequenzgang bewegt sich selbst mit der Modulation (Hüllkurvenfolger, LFO) — links rot, rechts cyan.
 
 ## Einfach bis extrem komplex
 - **Einfach:** Sample reinziehen → wird automatisch gesliced und auf die Steps gelegt → Play.
@@ -59,9 +83,9 @@ Pro Ziel-Parameter ein eigener Zufallskanal, getaktet in Steps.
 LP · BP · HP · Notch (12/24/36/48 dB/Okt, Butterworth-Stufen, Resonanz in der letzten Stufe) · Peak · Low-/High-Shelf · Comb ± · Formant (Vokal-Morph A–E–I–O–U).
 Drive vor dem Filter (ADAA) · Hüllkurvenfolger (Menge, Attack, Release) · LFO (frei oder tempo-synchron, 6 Formen) · Stereo-Phase · L/R-Versatz · Mix · Ausgang. Der Frequenzgang wird live gezeichnet, inklusive der modulierten Cutoff-Position links/rechts.
 
-### Surround-Panner & Spread (Layer „Raum")
+### Surround & Spread pro Step (Layer „Raum")
 Pro Step: **Pan** (links/rechts), **Tiefe** (vorne → hinten), **Orbit** (kreist um den Hörer, eigene Rate), **Spread** (Stereobreite 0–200 %; beim Synth trennt Spread die beiden Oszillatoren). Dazu Zufalls-Pan, Pan-Modulation und Autopan.
-Die Ausgabe ist Stereo: „hinten" wird psychoakustisch erzeugt (Höhendämpfung wie durch Kopf und Ohrmuschel, leiser, breiter). Das FELD im Viewport zeigt jede Stimme live im Raum.
+Die Ausgabe ist Stereo: „hinten" wird psychoakustisch erzeugt (Höhendämpfung wie durch Kopf und Ohrmuschel, leiser, breiter).
 
 ### Ratchets & Laufrichtung
 - **Ratchet** 1–8 Wiederholungen pro Step, **Ratchet-Dynamik** (anschwellend/abfallend).
@@ -85,9 +109,8 @@ Layer ein-/ausblenden über die Leiste, Bypass ⏻ pro Layer, auf-/zuklappen fü
 | Alt + Mausrad | einzelnen Step fein |
 | Step-Nummer | vorhören |
 
-### Mutate · Collide · Rip
+### Mutate · Rip
 - **Mutate:** Der Attack bleibt bei jeder Auslösung identisch, danach moduliert Mutate Pitch, Filter, Raum, Warp und Pegel jedes Mal neu.
-- **Collide:** Zwei gegenläufige Strahlen umkreisen die Sequenz. Wo sie sich treffen, entsteht ein Trümmer-Schauer aus Grains beider Steps; Strahl B beschleunigt bis zum Beam Dump.
 - **Rip:** Beat-Repeat, gesteuert von einem rekurrenten neuronalen Netz, das aus jeder Wiederholung lernt. Das Gehirn wird mit dem Projekt gespeichert.
 
 ### Aufnahme, Projekte, Einstellungen
@@ -110,6 +133,9 @@ Layer ein-/ausblenden über die Leiste, Bypass ⏻ pro Layer, auf-/zuklappen fü
 | Master-Filter: 10 Typen, Resonanz 1, Drive 36 dB, LFO/Env voll | stabil, kein NaN |
 | Chaos 100 % auf 76 Parametern + alle Makros + Ratchets | stabil, Peak ≤ −0.3 dBFS |
 | Ratchet 4 | exakt 4 Anschläge pro Step |
+| Globale Amp-Hüllkurve (Decay 40 ms, Sustain 0) | nach 0.4 s Stille (−240 dB) |
+| Globale Filter-Hüllkurve −8 Okt auf Step ohne Filter | 20. Oberton −59 → −126 dB |
+| Granular: 12 Stimmen × 200 Körner/s, ±24 st | stabil, 13 % Echtzeit |
 | Sync-Aufnahme mit Count-in + Latenzausgleich | sample-genau |
 
 **CPU-Schutz:** Bei Dauerlast über 85 % blendet die Engine die ältesten Ausklänge (Delay-/Hall-Tails) in 6 ms aus, statt Dropouts zu riskieren.
@@ -121,8 +147,8 @@ src/
   styles.css              Raumschiff-Konsole, Desktop + Phone
   audio/  chili-processor.js (gesamte DSP) · engine.js · slicer.js · wav.js
   state/  params.js · layers.js (Layer, Presets) · project.js · storage.js
-  ui/     deck.js · viewport.js · lanes.js · bay.js (Bay, Chaos) · master.js (Master, Filter, Out)
-          special.js (Collide, Rip) · recorder.js · pages.js · dom.js
+  ui/     deck.js · viewport.js (Sample-Leiste) · lanes.js · rack.js (Monitor, Surround, Hüllkurven)
+          master.js (FX, Filter, Master) · chaos.js · special.js (Rip) · recorder.js · pages.js · dom.js
 tests/dsp.test.mjs
 docs/DSP.md
 ```

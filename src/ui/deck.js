@@ -42,7 +42,8 @@ export function deckView(app) {
   const mk = MACRO_DEFS.map((d) => { const k = knob(d, () => M()[d.k], (v) => { M()[d.k] = v; app.commit(); }, { macro: true }); k.dataset.help = `${d.help} Doppelklick: neutral.`; return k; });
   const macroReset = h('button', { class: 'tbtn', 'data-help': 'Alle Makros auf neutral.', onclick: () => { app.snapshot(); MACRO_DEFS.forEach((d) => (M()[d.k] = d.def)); app.commit(); mk.forEach((k) => k.update()); } }, '⟲');
   const macros = h('div', { class: 'macros' }, h('div', { class: 'mac-l' }, h('span', { class: 'tlabel' }, 'Makro'), macroReset), h('div', { class: 'mac-k' }, mk));
-  const el = h('section', { class: 'deck' }, transport, macros);
+  transport.insertBefore(macros, transport.querySelector('.grow'));
+  const el = h('section', { class: 'deck' }, transport);
   function buildTempo() {
     tempoBox.innerHTML = ''; const tr = t();
     if (tr.tempoMode === 'bpm') tempoBox.append(numInput(tr.bpm, 20, 400, 0.01, (v) => { tr.bpm = v; app.commit('transportLite'); }));

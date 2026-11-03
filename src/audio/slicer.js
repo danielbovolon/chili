@@ -77,3 +77,25 @@ export function mapSlices(n, L, mode) {
     default: return idx;
   }
 }
+
+/** Peaks finden: die n stärksten Einschwingvorgänge im ganzen Sample. Jeder Slice beginnt kurz vor einem Peak
+ *  und endet am nächsten; Material vor dem ersten Peak fällt weg. Ergebnis zeitlich sortiert, mit Stärke. */
+export function findPeaks(buf, n = 16) {
+  const sr = buf.sampleRate, len = buf.length;
+  const a = buf.getChannelData(0), b = buf.numberOfChannels > 1 ? buf.getChannelData(1) : a;
+  const hop = 128, win = 512, frames = Math.max(2, Math.floor((len - win) / hop));
+  const e = new Float32Array(frames);
+  for (let f = 0; f < frames; f++) { let s = 0; const o = f * hop; for (let i = o; i < o + win; i++) { const x = a[i] + b[i]; s += x * x; } e[f] = Math.log10(s / win + 1e-9); }
+  const on = new Float32Array(frames);
+  for (let f = 2; f < frames; f++) on[f] = Math.max(0, e[f] - Math.min(e[f - 1], e[f - 2]));
+  const cand = [];
+  for (let f = 2; f < frames - 1; f++) if (on[f] > 0.08 && on[f] >= on[f - 1] && on[f] > on[f + 1]) cand.push({ f, v: on[f] + 0.15 * (e[f] + 9) });
+  cand.sort((x, y) => y.v - x.v);
+  const gap = Math.round((0.045 * sr) / hop), pick = [];
+  for (const c of cand) { if (pick.every((p) => Math.abs(p.f - c.f) >= gap)) pick.push(c); if (pick.length >= n) break; }
+  if (!pick.length) return equalSlices(n).map(([s, t]) => ({ a: s, b: t, w: 1 }));
+  pick.sort((x, y) => x.f - y.f);
+  const pre = Math.round(0.004 * sr), vmax = Math.max(...pick.map((p) => p.v));
+  const st = pick.map((p) => { let i = Math.max(1, p.f * hop + (win >> 1) - pre); for (let k = 0; k < 64 && i > 1; k++, i--) if ((a[i] >= 0) !== (a[i - 1] >= 0)) break; return { s: i / len, w: p.v / vmax }; });
+  return st.map((p, k) => ({ a: p.s, b: k + 1 < st.length ? st[k + 1].s : 1, w: p.w }));
+}

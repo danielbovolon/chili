@@ -1,6 +1,6 @@
 /* Chili — App-Controller */
 import { Engine } from './audio/engine.js';
-import { equalSlices, transientSlices, beatSlices, autoSlices, mapSlices, peaks } from './audio/slicer.js';
+import { equalSlices, transientSlices, beatSlices, autoSlices, mapSlices, findPeaks, peaks } from './audio/slicer.js';
 import { encodeWav } from './audio/wav.js';
 import { recorderView } from './ui/recorder.js';
 import * as storage from './state/storage.js';
@@ -9,12 +9,14 @@ import { h, CHILI_SVG, DICE } from './ui/dom.js';
 import { deckView } from './ui/deck.js';
 import { viewportView } from './ui/viewport.js';
 import { stackView } from './ui/lanes.js';
-import { bayView, chaosView } from './ui/bay.js';
-import { collideView, ripView } from './ui/special.js';
+import { chaosView } from './ui/chaos.js';
+import { monitorView, surroundView, genvView } from './ui/rack.js';
+import { ripView } from './ui/special.js';
 import { masterFxView, filterView, outView } from './ui/master.js';
 import { projectsView, settingsView } from './ui/pages.js';
 
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
+export const APP_NAME = 'CHILI'; // Name an einer Stelle — für die Umbenennung
 const SETTINGS_KEY = 'chili.settings', LAST_KEY = 'chili.lastProject';
 const defaultSettings = () => ({ sampleRate: 'auto', latency: 'interactive', outputDevice: '', quality: '16', maxVoices: 16, limiter: true, ceiling: -0.3, panLaw: 'm3', refA: 440, noteFloor: 70, peakHold: 1.5, exportBits: '24', dither: true, inputDevice: '', inputCh: 'stereo', recAutoComp: true, recOffset: 0, autosave: 30 });
 const RESTART_KEYS = ['sampleRate', 'latency', 'outputDevice', 'quality', 'maxVoices'];
@@ -43,10 +45,9 @@ app.refreshPart = (p) => {
   if (p === 'transportLite') v.deck.refresh(false);
   if (p === 'stack' || p === 'grid' || p === 'editor') v.stack.refresh();
   if (p === 'source') v.viewport.refresh();
-  if (p === 'special') { v.collide.refresh(); v.rip.refresh(); v.bay.refresh(); }
-  if (p === 'master') { v.fx.refresh(); v.filter.refresh(); v.out.refresh(); }
+  if (p === 'special') { v.rip.refresh(); v.chaos.refresh(); }
+  if (p === 'master') { v.fx.refresh(); v.filter.refresh(); v.out.refresh(); v.ampEnv.refresh(); v.fltEnv.refresh(); }
   if (p === 'recorder') v.recorder.refresh();
-  if (p === 'bay') v.bay.refresh();
   if (p === 'header') renderHeader();
 };
 app.refreshAll = () => ['transport', 'stack', 'source', 'recorder', 'special', 'master', 'chaos', 'header'].forEach((p) => (p === 'chaos' ? app.views.chaos && app.views.chaos.refresh() : app.refreshPart(p)));
@@ -121,6 +122,7 @@ app.reslice = (id, mode, count, sens, assign = true, quiet = false, map) => {
   const bpm = tempoBpm(p.transport, app.settings);
   let parts;
   if (mode === 'manual') parts = p.slices.filter((s) => s.sampleId === id).map((s) => [s.a, s.b]);
+  if (mode === 'peaks') parts = findPeaks(buf, n).map((x) => [x.a, x.b]);
   if (!parts || !parts.length) parts = mode === 'trans' ? transientSlices(buf, sens ?? S.sens, n) : mode === 'beat' ? beatSlices(buf, bpm, S.grid, 32) : mode === 'region' || mode === 'equal' ? equalSlices(n) : autoSlices(buf, bpm, n);
   const oldIdx = new Set(p.slices.map((s, i) => (s.sampleId === id ? i : -1)).filter((i) => i >= 0));
   const keep = p.slices.filter((s) => s.sampleId !== id), remap = new Map();
@@ -179,7 +181,7 @@ app.toggleRec = async () => {
 
 /* ------------------------------------------------------------------ Aufnahme in den Sequencer */
 app.rec = { open: true, src: 'input', mode: 'sync', passes: 1, countIn: true, monitor: false, state: 'idle', count: 0, info: null };
-app.toggleRecorder = () => { app.views.bay.show(app.bayTab === 'rec' ? 'master' : 'rec'); setMobile('bay'); };
+app.toggleRecorder = () => { setMobile('bay'); const r = app.views.recorder; r.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); r.classList.remove('flash'); void r.offsetWidth; r.classList.add('flash'); };
 app.enableInput = async () => {
   await ensureAudio();
   try {
@@ -283,19 +285,18 @@ app.engine.on('tick', (m) => {
   const delay = Math.max(0, (m.t - app.engine.ctx.currentTime + app.engine.latency) * 1000);
   setTimeout(() => { if (app.playing) { app.playStep = m.step; app.views.stack.markDirty(); } }, delay);
 });
-app.engine.on('meter', (m) => { const v = app.views; v.out.meter(m); v.fx.meter(m); v.filter.meter(m); v.viewport.meter(m); v.recorder.meter(m); v.collide.meter(m); v.rip.meter(m); v.chaos.meter(m); });
-app.engine.on('collision', (m) => { app.views.collide.collision(m); app.flashes.push({ step: m.step, t: performance.now() }); });
-app.engine.on('dump', () => toast('Beam Dump — Strahl B zurückgesetzt'));
+app.engine.on('meter', (m) => { const v = app.views; v.out.meter(m); v.fx.meter(m); v.filter.meter(m); v.viewport.meter(m); v.recorder.meter(m); v.rip.meter(m); v.chaos.meter(m); v.surround.meter(m); v.ampEnv.meter(m); v.fltEnv.meter(m); });
 
-/* ------------------------------------------------------------------ Layout: ein Gerät, das in jeden Bildschirm passt */
+/* ------------------------------------------------------------------ Layout: ein kompaktes Gerät, das in jeden Bildschirm passt */
 const root = document.getElementById('app');
+document.title = APP_NAME.charAt(0) + APP_NAME.slice(1).toLowerCase();
 const header = h('header', { class: 'topbar' });
 const status = h('span', { class: 'status' });
 function renderHeader() {
   header.innerHTML = '';
   const name = h('input', { class: 'pname', value: app.project.name, spellcheck: false, 'data-help': 'Projektname.', onchange: (e) => { app.project.name = e.target.value || 'Ohne Titel'; app.commit(); }, onkeydown: (e) => { e.stopPropagation(); if (e.key === 'Enter') e.target.blur(); } });
   header.append(
-    h('div', { class: 'brand' }, h('span', { class: 'logo', html: CHILI_SVG }), h('span', { class: 'word' }, 'CHILI'), h('span', { class: 'ver' }, VERSION)),
+    h('div', { class: 'brand' }, h('span', { class: 'logo', html: CHILI_SVG }), h('span', { class: 'word' }, APP_NAME), h('span', { class: 'ver' }, VERSION)),
     h('nav', { class: 'nav' }, [['seq', 'SEQ'], ['projects', 'PROJEKTE'], ['settings', 'SETUP']].map(([id, l]) => h('button', { class: app.page === id ? 'on' : '', onclick: () => go(id) }, l))),
     h('div', { class: 'hcenter' }, name),
     h('div', { class: 'hright' }, status, h('button', { class: 'btn accent', 'data-help': 'Projekt speichern — Strg/⌘+S.', onclick: () => app.save() }, 'SAVE')));
@@ -318,18 +319,9 @@ function go(page) {
 
 const V = app.views;
 V.deck = deckView(app); V.viewport = viewportView(app); V.source = V.viewport; V.stack = stackView(app);
-V.recorder = recorderView(app); V.collide = collideView(app); V.rip = ripView(app);
+V.recorder = recorderView(app); V.rip = ripView(app);
 V.fx = masterFxView(app); V.filter = filterView(app); V.out = outView(app); V.chaos = chaosView(app);
-V.bay = bayView(app, [
-  { id: 'master', label: 'MASTER', el: V.fx, help: 'Master: Compressor, Delay, Reverb.' },
-  { id: 'filter', label: 'FILTER', el: V.filter, help: 'Master-Filter: 10 Typen, bis 48 dB/Okt, Drive, Hüllkurvenfolger, LFO, Stereo.', lit: () => app.project.master.filter.on },
-  { id: 'chaos', label: 'CHAOS', el: V.chaos, help: 'Chaos: Zufallsmodulator für jeden Parameter jedes Steps.', lit: () => app.project.chaos.on || app.project.macros.chaos > 0 },
-  { id: 'collide', label: 'COLLIDE', el: V.collide, help: 'Collide: der Sequencer als Teilchenbeschleuniger.', lit: () => app.project.collide.on },
-  { id: 'rip', label: 'RIP', el: V.rip, help: 'Rip: neuronaler Beat-Repeat.', lit: () => app.project.rip.on },
-  { id: 'rec', label: 'REC', el: V.recorder, help: 'Aufnahme: Eingang oder Master direkt als Sample.', lit: () => app.rec.state !== 'idle' },
-]);
-const bayShow = V.bay.show; V.bay.show = (id) => { app.bayTab = id; bayShow(id); };
-app.bayTab = 'master';
+V.monitor = monitorView(app); V.surround = surroundView(app); V.ampEnv = genvView(app, 'amp'); V.fltEnv = genvView(app, 'flt');
 V.projects = projectsView(app); V.settings = settingsView(app);
 app.toast = (m, e) => toast(m, e);
 
@@ -339,22 +331,49 @@ helpText.textContent = DEFAULT_HELP;
 const helpbar = h('footer', { class: 'helpbar' }, h('b', {}, '?'), helpText);
 document.addEventListener('mouseover', (e) => { const t = e.target.closest && e.target.closest('[data-help]'); helpText.textContent = t ? t.dataset.help : DEFAULT_HELP; });
 
-const seqPage = h('div', { class: 'body' },
-  h('div', { class: 'main' }, V.viewport, V.stack),
-  V.bay, V.out);
+// Rack: alle Module gleichzeitig sichtbar, keine Tabs
+const rack = h('div', { class: 'rack' },
+  h('div', { class: 'rcol' }, V.monitor, V.surround, V.ampEnv, V.fltEnv, V.recorder),
+  h('div', { class: 'rcol' }, V.filter, V.fx, V.chaos, V.rip));
+const seqPage = h('div', { class: 'body' }, h('div', { class: 'main' }, V.viewport, V.stack), rack, V.out);
 const pages = { seq: seqPage, projects: h('div', { class: 'body page-wrap' }, V.projects), settings: h('div', { class: 'body page-wrap' }, V.settings) };
-const mtabs = h('nav', { class: 'mtabs' }, [['seq', 'SEQ'], ['macro', 'MAKRO'], ['bay', 'MODULE'], ['out', 'OUT']].map(([id, l]) => h('button', { 'data-m': id, onclick: () => setMobile(id) }, l)));
+const mtabs = h('nav', { class: 'mtabs' }, [['seq', 'SEQ'], ['macro', 'MAKRO'], ['bay', 'RACK'], ['out', 'MASTER']].map(([id, l]) => h('button', { 'data-m': id, onclick: () => setMobile(id) }, l)));
 function setMobile(id) { device.dataset.m = id; mtabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.m === id)); if (id === 'seq') V.stack.markDirty(); }
 const device = h('div', { class: 'device', 'data-m': 'seq' }, header, V.deck, pages.seq, pages.projects, pages.settings, helpbar, mtabs);
 
-/* Startfenster: Zündung */
-const ign = h('button', { class: 'ignite', 'aria-label': 'Audio starten' },
-  h('span', { class: 'igr r1' }), h('span', { class: 'igr r2' }), h('span', { class: 'igr r3' }),
-  h('span', { class: 'core', html: '<svg viewBox="0 0 24 24"><path d="M12 3v8M6.3 6.6a8 8 0 1 0 11.4 0" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>' }));
-const gate = h('div', { class: 'gate' },
-  h('div', { class: 'gate-in' }, h('span', { class: 'logo big', html: CHILI_SVG }), h('h1', {}, 'CHILI'), ign, h('div', { class: 'ign-l' }, 'AUDIO STARTEN')));
-const ignite = () => { gate.classList.add('lit'); ensureAudio().then(() => { setTimeout(() => gate.classList.add('out'), 260); setTimeout(() => gate.remove(), 900); }).catch(() => gate.classList.remove('lit')); };
-ign.addEventListener('click', ignite);
+/* Startseite: Audio-Gerät — animiertes Oszilloskop/Spektrum, Name, Power-Schalter */
+const gcv = h('canvas', { class: 'gate-cv' });
+const power = h('button', { class: 'power', 'aria-label': 'Audio starten' }, h('span', { class: 'led' }), h('span', { class: 'rocker' }, h('i', {}, 'I'), h('i', {}, 'O')));
+const gate = h('div', { class: 'gate' }, gcv,
+  h('div', { class: 'gate-in' },
+    h('div', { class: 'g-brand' }, h('span', { class: 'logo big', html: CHILI_SVG }), h('h1', {}, APP_NAME)),
+    h('div', { class: 'g-panel' }, h('div', { class: 'g-lab' }, 'POWER'), power, h('div', { class: 'g-lab dim' }, 'AUDIO ON'))));
+const ignite = () => { gate.classList.add('lit'); ensureAudio().then(() => { setTimeout(() => gate.classList.add('out'), 380); setTimeout(() => gate.remove(), 1000); }).catch(() => gate.classList.remove('lit')); };
+power.addEventListener('click', ignite);
+(function gateAnim(t0) {
+  const step = (now) => {
+    if (!gate.isConnected) return; requestAnimationFrame(step);
+    const dpr = devicePixelRatio || 1, W = gcv.clientWidth, H = gcv.clientHeight; if (!W) return;
+    if (gcv.width !== Math.round(W * dpr)) { gcv.width = Math.round(W * dpr); gcv.height = Math.round(H * dpr); }
+    const g = gcv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+    const t = (now - t0) / 1000, lit = gate.classList.contains('lit'), amp = lit ? 1.6 : 1;
+    // Spektrum unten
+    const bars = 72, bw = W / bars;
+    for (let i = 0; i < bars; i++) {
+      const f = i / bars, v = (0.35 + 0.65 * Math.abs(Math.sin(t * (0.7 + f * 2.3) + i * 0.37) * Math.cos(t * 0.53 + i * 0.11))) * (1 - f * 0.55) * amp;
+      const hh = v * H * 0.22, grad = g.createLinearGradient(0, H, 0, H - hh); grad.addColorStop(0, 'rgba(13,107,93,0.55)'); grad.addColorStop(1, lit ? 'rgba(255,59,47,0.7)' : 'rgba(255,162,26,0.45)');
+      g.fillStyle = grad; g.fillRect(i * bw + 1, H - hh, bw - 2, hh);
+    }
+    // Oszilloskop-Spuren
+    for (const [k, col, a] of [[0, 'rgba(70,240,210,0.65)', 1], [1, 'rgba(255,59,47,0.55)', 0.7], [2, 'rgba(70,240,210,0.2)', 0.5]]) {
+      g.strokeStyle = col; g.lineWidth = k === 0 ? 1.6 : 1; g.shadowColor = col; g.shadowBlur = 8; g.beginPath();
+      for (let x = 0; x <= W; x += 3) { const u = x / W, y = H * 0.5 + Math.sin(u * 18 + t * (2 + k)) * Math.sin(u * 3.1 - t * 0.7) * H * 0.09 * a * amp + Math.sin(u * 61 + t * 5) * H * 0.012; x ? g.lineTo(x, y) : g.moveTo(x, y); }
+      g.stroke();
+    }
+    g.shadowBlur = 0;
+  };
+  requestAnimationFrame(step);
+})(performance.now());
 root.append(device, gate, h('div', { class: 'toasts' }));
 setMobile('seq'); go('seq');
 

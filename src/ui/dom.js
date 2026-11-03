@@ -27,18 +27,18 @@ function arc(r, a, b) {
 export function knob(def, get, set, opt = {}) {
   const bip = def.min < 0 && def.max > 0;
   const s = svg('svg', { viewBox: '0 0 40 40', class: 'knob-svg' });
-  const ticks = svg('path', { class: 'k-ticks', d: arc(18.5, A0, A1) });
-  const track = svg('path', { class: 'k-track', d: arc(15, A0, A1) }), val = svg('path', { class: 'k-val' }), dot = svg('circle', { class: 'k-dot', r: 2.2 });
-  s.append(ticks, track, val, dot);
+  // Ableton-Stil: dünner Bogen, Wertbogen, Zeiger aus der Mitte
+  const track = svg('path', { class: 'k-track', d: arc(14, A0, A1) }), val = svg('path', { class: 'k-val' }), dot = svg('line', { class: 'k-needle', x1: 20, y1: 20 });
+  s.append(track, val, dot);
   const valEl = h('div', { class: 'k-value' }), lab = h('div', { class: 'k-label' }, def.l);
-  const el = h('div', { class: `knob${opt.small ? ' small' : ''}${opt.macro ? ' macro' : ''}`, tabindex: 0, 'data-help': `${def.l} — vertikal ziehen · Shift fein · Mausrad · Doppelklick Standardwert` }, s, valEl, lab);
+  const el = h('div', { class: `knob${opt.small ? ' small' : ''}${opt.macro ? ' macro' : ''}`, tabindex: 0, 'data-help': `${def.l} — vertikal ziehen · Shift fein · Mausrad · Doppelklick Standardwert` }, lab, s, valEl);
   const maxFor = () => (def.dyn && opt.dynMax ? opt.dynMax() : def.max);
   const d = () => ({ ...def, max: Math.max(def.min + (def.int ? 1 : 1e-6), maxFor()) });
   const update = () => {
     const v = get(), dd = d(), n = Math.min(1, Math.max(0, toNorm(dd, v))), a = A0 + n * (A1 - A0);
     const c = bip ? A0 + toNorm(dd, 0) * (A1 - A0) : A0;
-    val.setAttribute('d', arc(15, Math.min(a, c), Math.max(a, c)));
-    dot.setAttribute('cx', (20 + 10 * Math.cos(a)).toFixed(2)); dot.setAttribute('cy', (20 + 10 * Math.sin(a)).toFixed(2));
+    val.setAttribute('d', arc(14, Math.min(a, c), Math.max(a, c)));
+    dot.setAttribute('x2', (20 + 14 * Math.cos(a)).toFixed(2)); dot.setAttribute('y2', (20 + 14 * Math.sin(a)).toFixed(2));
     valEl.textContent = opt.mixed ? '—' : fmt(def.u, v);
   };
   const setN = (n) => { set(fromNorm(d(), n)); update(); };

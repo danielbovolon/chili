@@ -1,5 +1,5 @@
 /* Chili — Projektmodell */
-import { makeStep, masterDefaults, collideDefaults, ripDefaults, macroDefaults, chaosDefaults, mfDefaults, NOTE_NAMES, STEP_DEFS, STEP_DEF_MAP } from './params.js';
+import { makeStep, masterDefaults, ripDefaults, macroDefaults, chaosDefaults, mfDefaults, genvDefaults, NOTE_NAMES, STEP_DEFS, STEP_DEF_MAP } from './params.js';
 import { LAYERS, LAYER_MAP, layerDefaults } from './layers.js';
 
 export const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
@@ -23,7 +23,7 @@ export function newProject(name = 'Neues Projekt', demo = true) {
     version: 1, id: uid(), name, created: Date.now(), updated: Date.now(),
     transport: { tempoMode: 'bpm', bpm: 120, hz: 2, note: 'A', octave: 4, length: 16, division: '1/16', swing: 0, direction: 'fwd' },
     steps, slices: [], samples: [],
-    collide: collideDefaults(), rip: ripDefaults(), master: masterDefaults(), layers: layerDefaults(), macros: macroDefaults(), chaos: chaosDefaults(),
+    genv: genvDefaults(), rip: ripDefaults(), master: masterDefaults(), layers: layerDefaults(), macros: macroDefaults(), chaos: chaosDefaults(),
   };
 }
 
@@ -33,7 +33,9 @@ export function normalizeProject(p) {
   const out = { ...base, ...p };
   out.transport = { ...base.transport, ...(p.transport || {}) };
   out.steps = Array.from({ length: 32 }, (_, i) => ({ ...makeStep(), ...((p.steps || [])[i] || { on: false }) }));
-  out.collide = { ...base.collide, ...(p.collide || {}) };
+  const gd = genvDefaults(), pg = p.genv || {};
+  out.genv = { amp: { ...gd.amp, ...(pg.amp || {}) }, flt: { ...gd.flt, ...(pg.flt || {}) } };
+  delete out.collide;
   out.rip = { ...base.rip, ...(p.rip || {}) };
   const m = p.master || {};
   out.master = { comp: { ...base.master.comp, ...(m.comp || {}) }, delay: { ...base.master.delay, ...(m.delay || {}) }, verb: { ...base.master.verb, ...(m.verb || {}) }, filter: { ...mfDefaults(), ...(m.filter || {}) }, fader: m.fader ?? base.master.fader };
@@ -65,7 +67,7 @@ export function engineState(p, settings) {
   let over = null;
   for (const l of LAYERS) if (l.bypass && p.layers && p.layers[l.id] && !p.layers[l.id].on) over = { ...(over || {}), ...l.bypass };
   const steps = over ? p.steps.map((s) => ({ ...s, ...over })) : p.steps;
-  return { bpm: tempoBpm(t, settings), division: t.division, swing: t.swing, len: t.length, direction: t.direction || 'fwd', steps, slices: p.slices, collide: p.collide, rip, master: p.master,
+  return { bpm: tempoBpm(t, settings), division: t.division, swing: t.swing, len: t.length, direction: t.direction || 'fwd', steps, slices: p.slices, genv: p.genv, rip, master: p.master,
     macros: p.macros, chaos: { ...p.chaos, keys: chaosKeys(p.chaos.targets) } };
 }
 

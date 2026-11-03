@@ -68,6 +68,7 @@ export const STEP_GROUPS = [
   { id: 'src', label: 'Quelle', sections: [
     { title: 'Step', params: [S('source', 'Quelle', [['sample', 'Sample'], ['synth', 'Synth']], 'sample'), K('gain', 'Gain', -48, 6, 0, 'db'), K('prob', 'Chance', 0, 1, 1, '%'), K('gate', 'Länge', 0.05, 8, 1, 'steps', { c: 'log' }), K('pitch', 'Pitch', -24, 24, 0, 'st', { int: true }), K('fine', 'Fein', -100, 100, 0, 'ct'), K('ratchet', 'Ratchet', 1, 8, 1, 'int', { int: true }), K('ratchVel', 'Ratchet-Dyn.', -1, 1, 0, '%')] },
     { title: 'Sample', when: (s) => s.source !== 'synth', params: [K('slice', 'Slice', 0, 31, 0, 'slice', { int: true, dyn: 'slices' }), K('start', 'Start', 0, 0.95, 0, '%'), T('reverse', 'Reverse'), T('loop', 'Loop')] },
+    { title: 'Granular', params: [T('grMode', 'Granular'), K('grSize', 'Korngröße', 5, 500, 80, 'ms', { c: 'log' }), K('grDensity', 'Kornrate', 1, 200, 30, 'hz', { c: 'log' }), K('grPos', 'Position', 0, 1, 0, '%'), K('grSpray', 'Streuung', 0, 1, 0.1, '%'), K('grScan', 'Scan', -2, 2, 1, 'x'), K('grPitch', 'Pitch-Streu', 0, 24, 0, 'st'), K('grWidth', 'Breite', 0, 1, 0.5, '%')] },
     { title: 'Synth', when: (s) => s.source === 'synth', params: [K('note', 'Note', 24, 96, 48, 'note', { int: true }), S('osc1', 'Osc 1', WAVES, 'saw'), S('osc2', 'Osc 2', WAVES, 'square'), K('osc2Semi', 'Osc 2 Semi', -24, 24, 0, 'st', { int: true }), K('osc2Fine', 'Osc 2 Fein', -50, 50, 7, 'ct'), K('oscMix', 'Mix 1↔2', 0, 1, 0.5, '%'), K('sub', 'Sub', 0, 1, 0, '%'), K('noise', 'Noise', 0, 1, 0, '%')] },
   ] },
   { id: 'env', label: 'Hüllkurve', sections: [
@@ -109,22 +110,17 @@ export function makeStep(over = {}) {
 
 /* ---- Master / Collide / Rip */
 export const MASTER_GROUPS = [
-  { id: 'comp', title: 'Compressor', params: [K('thr', 'Threshold', -60, 0, -18, 'db'), K('ratio', 'Ratio', 1, 20, 3, 'ratio', { c: 'log' }), K('atk', 'Attack', 0.1, 100, 10, 'ms', { c: 'log' }), K('rel', 'Release', 10, 2000, 120, 'ms', { c: 'log' }), K('knee', 'Knee', 0, 18, 6, 'db'), K('makeup', 'Makeup', 0, 24, 0, 'db'), K('mix', 'Dry/Wet', 0, 1, 0, '%')] },
-  { id: 'delay', title: 'Delay', params: [S('sync', 'Zeit', SYNC_OPTS, '1/8D'), K('fb', 'Feedback', 0, 0.95, 0.35, '%'), K('tone', 'Ton', 0, 1, 0.6, '%'), T('pp', 'Ping-Pong', true), K('mix', 'Dry/Wet', 0, 1, 0, '%')] },
-  { id: 'verb', title: 'Reverb', params: [K('size', 'Größe', 0, 1, 0.7, '%'), K('decay', 'Decay', 0.2, 20, 2.4, 's', { c: 'log' }), K('damp', 'Dämpfung', 0, 1, 0.4, '%'), K('pre', 'Pre-Delay', 0, 250, 20, 'ms'), K('mix', 'Dry/Wet', 0, 1, 0, '%')] },
-];
-export const COLLIDE_DEFS = [
-  K('ratio', 'Gegenstrahl', 0.25, 4, 1.5, 'x', { c: 'log' }), K('energy', 'Energie', 0, 1, 0.5, '%'), K('accel', 'Beschleun.', 0, 1, 0.2, '%'),
-  K('beamB', 'Strahl B', 0, 1, 0.5, '%'), K('scatter', 'Streu-Pitch', 0, 24, 7, 'st'), K('spread', 'Schauer', 5, 1000, 120, 'ms', { c: 'log' }), K('level', 'Trümmer', 0, 1, 0.8, '%'),
+  { id: 'comp', title: 'Compressor', params: [K('thr', 'Thresh', -60, 0, -18, 'db'), K('ratio', 'Ratio', 1, 20, 3, 'ratio', { c: 'log' }), K('atk', 'Attack', 0.1, 100, 10, 'ms', { c: 'log' }), K('rel', 'Release', 10, 2000, 120, 'ms', { c: 'log' }), K('knee', 'Knee', 0, 18, 6, 'db'), K('makeup', 'Gain', 0, 24, 0, 'db'), K('mix', 'Mix', 0, 1, 0, '%')] },
+  { id: 'delay', title: 'Delay', params: [S('sync', 'Zeit', SYNC_OPTS, '1/8D'), K('fb', 'FB', 0, 0.95, 0.35, '%'), K('tone', 'Ton', 0, 1, 0.6, '%'), T('pp', 'P·P', true), K('mix', 'Mix', 0, 1, 0, '%')] },
+  { id: 'verb', title: 'Reverb', params: [K('size', 'Größe', 0, 1, 0.7, '%'), K('decay', 'Decay', 0.2, 20, 2.4, 's', { c: 'log' }), K('damp', 'Damp', 0, 1, 0.4, '%'), K('pre', 'Pre', 0, 250, 20, 'ms'), K('mix', 'Mix', 0, 1, 0, '%')] },
 ];
 export const RIP_DEFS = [
-  K('mix', 'Mix', 0, 1, 1, '%'), K('chance', 'Erregung', 0, 1, 0.35, '%'), K('plast', 'Plastizität', 0, 1, 0.3, '%'), K('temp', 'Temperatur', 0, 1, 0.3, '%'),
-  K('gridMin', 'Raster min', -4, 2, -2, 'grid', { int: true }), K('gridMax', 'Raster max', -4, 2, 0, 'grid', { int: true }), K('maxLen', 'Max. Dauer', 1, 16, 4, 'steps', { int: true }),
-  K('pitch', 'Pitch-Drift', 0, 12, 0, 'st'), K('decay', 'Zerfall', 0, 1, 0.2, '%'),
+  K('mix', 'Mix', 0, 1, 1, '%'), K('chance', 'Erreg.', 0, 1, 0.35, '%'), K('plast', 'Plast.', 0, 1, 0.3, '%'), K('temp', 'Temp', 0, 1, 0.3, '%'),
+  K('gridMin', 'Min', -4, 2, -2, 'grid', { int: true }), K('gridMax', 'Max', -4, 2, 0, 'grid', { int: true }), K('maxLen', 'Dauer', 1, 16, 4, 'steps', { int: true }),
+  K('pitch', 'Drift', 0, 12, 0, 'st'), K('decay', 'Zerf.', 0, 1, 0.2, '%'),
 ];
 const defaults = (defs) => Object.fromEntries(defs.map((d) => [d.k, d.def]));
 export const masterDefaults = () => ({ comp: defaults(MASTER_GROUPS[0].params), delay: defaults(MASTER_GROUPS[1].params), verb: defaults(MASTER_GROUPS[2].params), fader: 0.8, filter: mfDefaults() });
-export const collideDefaults = () => ({ on: false, ...defaults(COLLIDE_DEFS) });
 export const ripDefaults = () => ({ on: false, freeze: false, seed: 1, ...defaults(RIP_DEFS) });
 
 /* ---- Laufrichtung */
@@ -153,11 +149,16 @@ export const chaosDefaults = () => ({ on: false, mode: 'rel', seed: 1, targets: 
 /* ---- Master-Filter */
 export const MF_TYPES = [['lp', 'LP'], ['bp', 'BP'], ['hp', 'HP'], ['notch', 'Notch'], ['peak', 'Peak'], ['lshelf', 'Low-Shelf'], ['hshelf', 'High-Shelf'], ['comb', 'Comb +'], ['combn', 'Comb −'], ['formant', 'Formant']];
 export const MF_DEFS = [
-  K('cutoff', 'Cutoff', 20, 20000, 1200, 'hz', { c: 'log' }), K('res', 'Resonanz', 0, 1, 0.3, '%'), K('drive', 'Drive', 0, 36, 0, 'db'),
+  K('cutoff', 'Cutoff', 20, 20000, 1200, 'hz', { c: 'log' }), K('res', 'Reso', 0, 1, 0.3, '%'), K('drive', 'Drive', 0, 36, 0, 'db'),
   K('gain', 'Gain', -18, 18, 6, 'db'), K('vowel', 'Vokal', 0, 4, 0, 'vowel'),
-  K('envAmt', 'Env', -4, 4, 0, 'oct'), K('envAtk', 'Env Attack', 0.5, 200, 5, 'ms', { c: 'log' }), K('envRel', 'Env Release', 10, 2000, 150, 'ms', { c: 'log' }),
-  K('lfoDepth', 'LFO', 0, 4, 0, 'oct', { c: 'cub' }), K('lfoRate', 'LFO-Rate', 0.01, 20, 0.5, 'hz', { c: 'log' }), S('lfoSync', 'LFO-Sync', [['off', 'frei'], ...SYNC_OPTS], 'off'), S('lfoShape', 'LFO-Form', LFO_SHAPES, 'sine'),
-  K('stereo', 'Stereo-Phase', 0, 1, 0, '%'), K('spreadOct', 'L/R-Versatz', -1, 1, 0, 'oct'),
-  K('mix', 'Mix', 0, 1, 1, '%'), K('out', 'Ausgang', -18, 12, 0, 'db'),
+  K('envAmt', 'Env', -4, 4, 0, 'oct'), K('envAtk', 'Atk', 0.5, 200, 5, 'ms', { c: 'log' }), K('envRel', 'Rel', 10, 2000, 150, 'ms', { c: 'log' }),
+  K('lfoDepth', 'LFO', 0, 4, 0, 'oct', { c: 'cub' }), K('lfoRate', 'Rate', 0.01, 20, 0.5, 'hz', { c: 'log' }), S('lfoSync', 'LFO-Sync', [['off', 'frei'], ...SYNC_OPTS], 'off'), S('lfoShape', 'LFO-Form', LFO_SHAPES, 'sine'),
+  K('stereo', 'Phase', 0, 1, 0, '%'), K('spreadOct', 'L/R', -1, 1, 0, 'oct'),
+  K('mix', 'Mix', 0, 1, 1, '%'), K('out', 'Out', -18, 12, 0, 'db'),
 ];
 export const mfDefaults = () => ({ on: false, type: 'lp', slope: 2, ...defaults(MF_DEFS) });
+
+/* ---- Globale Hüllkurven: wirken auf jeden Step */
+export const GENV_AMP = [K('atk', 'Atk', 0, 2000, 2, 'ms', { c: 'cub' }), K('dec', 'Dec', 1, 5000, 300, 'ms', { c: 'log' }), K('sus', 'Sus', 0, 1, 0.6, '%'), K('rel', 'Rel', 1, 5000, 200, 'ms', { c: 'log' }), K('amt', 'Menge', 0, 1, 1, '%')];
+export const GENV_FLT = [K('atk', 'Atk', 0, 2000, 2, 'ms', { c: 'cub' }), K('dec', 'Dec', 1, 5000, 250, 'ms', { c: 'log' }), K('sus', 'Sus', 0, 1, 0.2, '%'), K('rel', 'Rel', 1, 5000, 200, 'ms', { c: 'log' }), K('amt', 'Menge', -8, 8, 3, 'oct')];
+export const genvDefaults = () => ({ amp: { on: false, ...defaults(GENV_AMP) }, flt: { on: false, ...defaults(GENV_FLT) } });

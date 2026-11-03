@@ -2,7 +2,7 @@
  * Chili v0.1 — DSP-Engine (AudioWorkletProcessor)
  *
  * Alles, was klingt, passiert hier — sample-genau, intern in 64-bit Float:
- *   Sequencer-Clock · Voices (Sampler/Synth + Step-FX) · Mutate · Collide · Rip · Master
+ *   Sequencer-Clock · Voices (Sampler/Granular/Synth + Step-FX) · Mutate · Chaos · Rip · Master
  *
  * Qualitäts-Grundsätze (siehe docs/DSP.md):
  *  - Sample-Pitch über Windowed-Sinc-Interpolation mit Anti-Alias-Skalierung (kein lineares Resampling)
@@ -73,6 +73,11 @@ function sincReadRing(L, R, mask, pos, fc) {
     sl += w * L[idx]; sr += w * R[idx];
   }
   RD[0] = sl * fc; RD[1] = sr * fc;
+}
+function hermRead2(L, R, pos) {
+  const n = L.length, i = Math.floor(pos), f = pos - i;
+  const a = i - 1 < 0 ? 0 : i - 1 >= n ? n - 1 : i - 1, b = i < 0 ? 0 : i >= n ? n - 1 : i, c = i + 1 >= n ? n - 1 : i + 1 < 0 ? 0 : i + 1, d = i + 2 >= n ? n - 1 : i + 2 < 0 ? 0 : i + 2;
+  RD[0] = herm(L[a], L[b], L[c], L[d], f); RD[1] = herm(R[a], R[b], R[c], R[d], f);
 }
 /** 4-Punkt-Hermite (3. Ordnung) — für modulierte Delays */
 function herm(xm1, x0, x1, x2, f) {
@@ -227,6 +232,7 @@ class Voice {
     this.cv = new Float64Array(C_N); this.ci = new Float64Array(C_N);
     this.rng = new Rng(1);
     this.smK = 1 - Math.exp(-KR / (0.003 * sr));
+    const GN = 12; this.gOn = new Uint8Array(GN); this.gPos = new Float64Array(GN); this.gRate = new Float64Array(GN); this.gT = new Float64Array(GN); this.gDur = new Float64Array(GN); this.gGL = new Float32Array(GN); this.gGR = new Float32Array(GN);
   }
 
   setC(i, tgt, snap) { if (snap) { this.cv[i] = tgt; this.ci[i] = 0; } else this.ci[i] = (tgt - this.cv[i]) / KR; }
@@ -245,22 +251,32 @@ class Voice {
       const off = Math.floor(clamp(s.start || 0, 0, 0.95) * (s1 - s0));
       this.pos = this.rev ? s1 - 2 - off : s0 + off;
       this.loop = !!s.loop; this.fadeN = Math.max(8, 0.001 * sr);
+      // Granular: Lesekopf wandert durch den Slice, Körner mit Hann-Fenster, Streuung in Zeit, Tonhöhe und Stereo
+      this.gr = !!s.grMode;
+      if (this.gr) {
+        const len = s1 - s0; this.gHead = s0 + clamp(s.grPos || 0, 0, 1) * (len - 2);
+        this.gSize = Math.max(64, (s.grSize || 80) * 0.001 * sr); this.gInt = sr / Math.max(0.5, s.grDensity || 30); this.gNext = 0;
+        this.gSpray = s.grSpray || 0; this.gPit = s.grPitch || 0; this.gScan = s.grScan ?? 1; this.gWid = s.grWidth ?? 0.5;
+        this.gNorm = 1 / Math.sqrt(Math.max(1, this.gSize / this.gInt)); this.gOn.fill(0);
+      }
     } else {
       this.f0 = E.refA * Math.pow(2, ((s.note ?? 48) - 69) / 12);
       this.w1 = W_IDX[s.osc1] ?? 2; this.w2 = W_IDX[s.osc2] ?? 3;
       this.o2r = Math.pow(2, ((s.osc2Semi || 0) + (s.osc2Fine || 0) / 100) / 12);
       this.ph1 = 0; this.ph2 = 0; this.ph3 = 0;
-      this.oMix = s.oscMix ?? 0.5; this.sub = s.sub || 0; this.noise = s.noise || 0; this.sid = null;
+      this.oMix = s.oscMix ?? 0.5; this.sub = s.sub || 0; this.noise = s.noise || 0; this.sid = null; this.gr = false;
     }
     this.srcOn = true; this.active = true; this.t = 0; this.killN = 0; this.kill = 0; this.silent = 0;
     this.serial = E.serial++; this.step = o.step;
     this.vel = dbLin(s.gain) * (o.vel ?? 1);
     this.basePitch = (s.pitch || 0) + (s.fine || 0) / 100 + (o.pitch || 0);
     // Amp-Hüllkurve
-    this.atkN = Math.max(0, s.atk * 0.001 * sr);
-    this.decC = Math.exp(-4.6 / Math.max(1, s.dec * 0.001 * sr));
-    this.sus = clamp(s.sus, 0, 1);
-    this.relC = Math.exp(-4.6 / Math.max(1, s.rel * 0.001 * sr));
+    let atk = s.atk, dec = s.dec, sus = s.sus, rel = s.rel; const G = E.genv;
+    if (G && G.amp && G.amp.on && G.amp.amt > 0) { const a = G.amp.amt, A = G.amp; atk += (A.atk - atk) * a; dec += (A.dec - dec) * a; sus += (A.sus - sus) * a; rel += (A.rel - rel) * a; }
+    this.atkN = Math.max(0, atk * 0.001 * sr);
+    this.decC = Math.exp(-4.6 / Math.max(1, dec * 0.001 * sr));
+    this.sus = clamp(sus, 0, 1);
+    this.relC = Math.exp(-4.6 / Math.max(1, rel * 0.001 * sr));
     this.gateN = Math.max(32, s.gate * E.stepDur * (o.gateMul || 1)); this.env = 0; this.stage = 0;
     // Filter
     this.fT = F_IDX[s.fType] || 0; this.z1l = this.z2l = this.z1r = this.z2r = 0;
@@ -269,6 +285,13 @@ class Voice {
     this.fMeta = s.fEnvShape === 'random';
     this.fShape = this.fMeta ? ALL_SHAPES[(rng.next() * ALL_SHAPES.length) | 0] : s.fEnvShape;
     genPts(this.fShape, this.rng, this.pts);
+    // Globale Filter-Hüllkurve (ADSR, Control-Rate) — wirkt auf jeden Step; Steps ohne Filter bekommen einen Lowpass
+    this.fgA = G && G.flt && G.flt.on ? G.flt.amt || 0 : 0; this.fge = 0; this.fgSt = 0;
+    if (this.fgA !== 0) {
+      const F = G.flt; this.fgAtkK = KR / Math.max(KR, F.atk * 0.001 * sr); this.fgDecK = Math.exp((-4.6 * KR) / Math.max(KR, F.dec * 0.001 * sr));
+      this.fgSus = clamp(F.sus, 0, 1); this.fgRelK = Math.exp((-4.6 * KR) / Math.max(KR, F.rel * 0.001 * sr));
+      if (!this.fT) this.fT = 1;
+    }
     // Pan
     this.pan0 = clamp(s.pan + rng.bi() * (s.panRnd || 0), -1, 1);
     this.panMD = s.panModDepth || 0; this.panMR = s.panModRate; this.panMS = s.panModShape;
@@ -345,7 +368,15 @@ class Voice {
         } else x = 1;
       }
       const v = shapeVal(this.fShape, x, this.pts);
-      const fc = clamp(this.cut * Math.pow(2, this.fAmt * v + mF), 16, 0.45 * sr);
+      let ge = 0;
+      if (this.fgA !== 0) {
+        if (this.fgSt === 0) { this.fge += this.fgAtkK; if (this.fge >= 1) { this.fge = 1; this.fgSt = 1; } }
+        else if (this.fgSt === 1) this.fge = this.fgSus + (this.fge - this.fgSus) * this.fgDecK;
+        else this.fge *= this.fgRelK;
+        if (this.fgSt < 2 && t >= this.gateN) this.fgSt = 2;
+        ge = this.fgA * this.fge;
+      }
+      const fc = clamp(this.cut * Math.pow(2, this.fAmt * v + mF + ge), 16, 0.45 * sr);
       this.setC(C_G, Math.tan((PI * fc) / sr), snap);
     }
     // Pegel (Tremolo + Mutate-Level), zusätzlich geglättet
@@ -396,7 +427,32 @@ class Voice {
       if (this.stage !== 3) {
       /* ---- Quelle */
       if (this.srcOn) {
-        if (this.src === 0) {
+        if (this.src === 0 && this.gr) {
+          const r = cv[C_RATE], s0 = this.s0, s1 = this.s1, len = s1 - s0;
+          if (--this.gNext <= 0) {
+            this.gNext += this.gInt * (0.7 + 0.6 * this.rng.next());
+            for (let g = 0; g < 12; g++) if (!this.gOn[g]) {
+              this.gOn[g] = 1; this.gT[g] = 0; this.gDur[g] = this.gSize;
+              this.gPos[g] = clamp(this.gHead + this.rng.bi() * this.gSpray * len * 0.5, s0, s1 - 2);
+              this.gRate[g] = r * Math.pow(2, (this.rng.bi() * this.gPit) / 12) * (this.rev ? -1 : 1);
+              const th = ((clamp(this.rng.bi() * this.gWid, -1, 1) + 1) * PI) / 4; this.gGL[g] = Math.cos(th) * Math.SQRT2; this.gGR[g] = Math.sin(th) * Math.SQRT2;
+              break;
+            }
+          }
+          let sl = 0, srr = 0;
+          for (let g = 0; g < 12; g++) {
+            if (!this.gOn[g]) continue;
+            const wi = (this.gT[g] / this.gDur[g]) * 1024, j = wi | 0, w = WIN[j] + (WIN[j + 1] - WIN[j]) * (wi - j);
+            const rr = this.gRate[g], ar = rr < 0 ? -rr : rr;
+            if (ar > 1.0001) sincRead(this.L, this.R, this.gPos[g], 1 / ar); else hermRead2(this.L, this.R, this.gPos[g]);
+            sl += RD[0] * w * this.gGL[g]; srr += RD[1] * w * this.gGR[g];
+            this.gPos[g] += rr; this.gT[g]++;
+            if (this.gT[g] >= this.gDur[g] || this.gPos[g] < s0 || this.gPos[g] > s1 - 2) this.gOn[g] = 0;
+          }
+          xl = sl * this.gNorm; xr = srr * this.gNorm;
+          this.gHead += r * this.gScan * (this.rev ? -1 : 1);
+          if (this.gHead >= s1 - 2) this.gHead -= len - 2; else if (this.gHead < s0) this.gHead += len - 2;
+        } else if (this.src === 0) {
           const r = cv[C_RATE];
           sincRead(this.L, this.R, this.pos, r > 1 ? 1 / r : 1);
           const d0 = this.pos - this.s0, d1 = this.s1 - 1 - this.pos, fn = this.fadeN;
@@ -492,22 +548,6 @@ class Voice {
         if ((L < 0 ? -L : L) + (R < 0 ? -R : R) < 3e-6) { if (++this.silent > sr * 0.1) { this.active = false; break; } } else this.silent = 0;
         if (this.t > this.gateN + sr * 30) { this.active = false; break; }
       }
-    }
-  }
-}
-
-/* ============================================================== GRAIN (Collide-Trümmer) */
-class Grain {
-  constructor() { this.active = false; }
-  render(bL, bR, a, b) {
-    for (let n = a; n < b; n++) {
-      if (this.wait > 0) { this.wait--; continue; }
-      const wi = this.t * this.inv * 1024, j = wi | 0, w = (WIN[j] + (WIN[j + 1] - WIN[j]) * (wi - j)) * this.amp;
-      let vl, vr;
-      if (this.kind === 0) { sincRead(this.L, this.R, this.pos, this.rate > 1 ? 1 / this.rate : 1); vl = RD[0]; vr = RD[1]; this.pos += this.rate; }
-      else { vl = vr = Math.sin(TAU * this.ph) * 0.6; this.ph += this.fq; if (this.ph >= 1) this.ph -= 1; }
-      bL[n] += vl * w * this.gl; bR[n] += vr * w * this.gr;
-      if (++this.t >= this.dur) { this.active = false; break; }
     }
   }
 }
@@ -872,14 +912,12 @@ class ChiliProcessor extends AudioWorkletProcessor {
     buildSinc(o.lobes || 16); WT = buildWavetables(sr);
     this.maxVoices = o.maxVoices || 16;
     this.voices = []; for (let i = 0; i < this.maxVoices + 4; i++) this.voices.push(new Voice(sr));
-    this.grains = []; for (let i = 0; i < 96; i++) this.grains.push(new Grain());
     this.samples = new Map(); this.slices = []; this.steps = []; this.len = 16;
     this.rng = new Rng((Date.now() ^ 0x5eed1234) >>> 0); this.serial = 1;
     this.bpm = 120; this.div = 1 / 16; this.swing = 0; this.refA = 440; this.panLaw = 'm3';
     this.calcTiming();
     this.playing = false; this.stepI = 0; this.tA = 0;
-    this.C = { on: false, ratio: 1.5, energy: 0.5, accel: 0.2, beamB: 0.5, scatter: 7, spread: 120, level: 0.8 };
-    this.posA = 0; this.nA = 0; this.posB = 8; this.nB = 8; this.sf = 1; this.justC = false;
+    this.genv = { amp: { on: false, amt: 0 }, flt: { on: false, amt: 0 } }; this.lastV = null;
     // Makros, Laufrichtung, Ratchets/Mikro-Timing (Pending-Trigger), Chaos-Modulator, Heat
     this.M = { heat: 0, density: 0.5, warp: 0, tone: 0, pitch: 0, length: 1, space: 0.5, chaos: 0 };
     this.dir = 'fwd'; this.ppDir = 1; this.stepCount = 0;
@@ -919,7 +957,7 @@ class ChiliProcessor extends AudioWorkletProcessor {
       case 'state': this.applyState(m.state); break;
       case 'play': this.setPlaying(m.on); if (!m.on) { for (const p of this.pend) p.on = false; this.pendN = 0; } break;
       case 'audition': this.trigger(m.step, { force: true }); break;
-      case 'panic': for (const v of this.voices) v.active = false; for (const g of this.grains) g.active = false; for (const p of this.pend) p.on = false; this.pendN = 0; break;
+      case 'panic': for (const v of this.voices) v.active = false; for (const p of this.pend) p.on = false; this.pendN = 0; break;
       case 'settings':
         this.panLaw = m.panLaw || 'm3'; this.limOn = m.limiter !== false; this.lim.ceil = dbLin(m.ceiling ?? -0.3); this.refA = m.refA || 440; break;
       case 'rec':
@@ -960,10 +998,7 @@ class ChiliProcessor extends AudioWorkletProcessor {
       if (sig !== this.chSig) { this.chSig = sig; this.chKeys = ks; this.chSt = ks.map(() => ({ prev: 0, next: 0, cur: 0, cnt: 0, hist: new Float64Array(32), hn: 0, hp: 0 })); }
       if (cs.seed !== undefined && cs.seed !== this.chSeed) { this.chSeed = cs.seed; this.chRng = new Rng(((cs.seed | 0) * 2654435761) >>> 0 || 1); }
     }
-    const c = s.collide || {};
-    const wasOn = this.C.on; Object.assign(this.C, c);
-    if (this.playing && c.on && !wasOn) this.initCollide(this.stepI);
-    if (this.playing && !c.on && wasOn) { this.stepI = mod(Math.floor(this.posA), this.len); this.tA = 0; }
+    if (s.genv) this.genv = s.genv;
     if (s.rip) {
       const r = s.rip, seedChanged = r.seed !== undefined && r.seed !== this.rip.curSeed;
       Object.assign(this.rip.p, r); if (seedChanged) this.rip.seed(r.seed);
@@ -979,62 +1014,22 @@ class ChiliProcessor extends AudioWorkletProcessor {
   }
 
   setPlaying(on) {
-    if (on && !this.playing) { this.stepI = 0; this.tA = 0; this.initCollide(0); this.sf = 1; this.ppDir = 1; this.stepCount = 0; }
+    if (on && !this.playing) { this.stepI = 0; this.tA = 0; this.ppDir = 1; this.stepCount = 0; }
     this.playing = on;
   }
-  initCollide(at) { this.posA = at; this.nA = at; this.posB = at + this.len / 2; this.nB = this.posB; this.justC = false; }
-
   /* ---- Clock */
-  rB() { return Math.max(0.05, this.C.ratio * this.sf); }
-  nextDt() {
-    if (!this.C.on) return this.tA;
-    const sd = this.stepDur, rB = this.rB(), N = this.len;
-    const tA = (this.nA - this.posA) * sd, tB = ((this.posB - this.nB) * sd) / rB;
-    let gap = mod(this.posB - this.posA, N); if (this.justC && gap < 0.25) gap += N;
-    return Math.min(tA, tB, (gap * sd) / (1 + rB));
-  }
-  advance(seg) {
-    if (!this.C.on) { this.tA -= seg; return; }
-    const sd = this.stepDur; this.posA += seg / sd; this.posB -= (seg * this.rB()) / sd;
-    const N = this.len;
-    if (this.nA > 64 * N) { const k = 32 * N; this.posA -= k; this.nA -= k; }
-    if (this.nB < -64 * N) { const k = 32 * N; this.posB += k; this.nB += k; }
-  }
+  nextDt() { return this.tA; }
+  advance(seg) { this.tA -= seg; }
   fireDue() {
-    const N = this.len;
-    if (!this.C.on) {
-      let guard = 0;
-      while (this.tA <= 1e-7 && guard++ < 8) {
-        const st = this.stepI; this.capTick(st); this.trigger(st, {});
-        const s = this.steps[st]; this.rip.tick(this, st, s ? s.ripWeight ?? 0.5 : 0.5, N);
-        this.tA += this.stepDur * ((this.stepCount++ & 1) === 0 ? 1 + this.swing : 1 - this.swing);
-        this.chaosTick();
-        this.stepI = this.nextStep(st, N); this.port.postMessage({ type: 'tick', step: st, t: currentTime });
-      }
-      return;
-    }
-    let guard = 0;
-    while (this.posA >= this.nA - 1e-7 && guard++ < 8) {
-      const st = mod(this.nA, N); this.capTick(st); this.trigger(st, {});
+    const N = this.len; let guard = 0;
+    while (this.tA <= 1e-7 && guard++ < 8) {
+      const st = this.stepI; this.capTick(st); this.trigger(st, {});
       const s = this.steps[st]; this.rip.tick(this, st, s ? s.ripWeight ?? 0.5 : 0.5, N);
+      this.tA += this.stepDur * ((this.stepCount++ & 1) === 0 ? 1 + this.swing : 1 - this.swing);
       this.chaosTick();
-      this.nA += 1; this.port.postMessage({ type: 'tick', step: st, t: currentTime });
+      this.stepI = this.nextStep(st, N); this.port.postMessage({ type: 'tick', step: st, t: currentTime });
     }
-    guard = 0;
-    while (this.posB <= this.nB + 1e-7 && guard++ < 16) {
-      const st = mod(this.nB, N);
-      if (this.C.beamB > 0) this.trigger(st, { vel: this.C.beamB, reverse: true });
-      this.nB -= 1;
-      if (st === 0) { // Strahl B hat eine Runde vollendet → beschleunigen
-        this.sf *= 1 + this.C.accel * 0.35;
-        if (this.C.ratio * this.sf > 8) { this.collision(this.posA, 1.6); this.sf = 1; this.port.postMessage({ type: 'dump', t: currentTime }); }
-      }
-    }
-    const gap = mod(this.posB - this.posA, N);
-    if (gap < 1e-6 || gap > N - 1e-6) { if (!this.justC) { this.collision(this.posA, 1); this.justC = true; } }
-    else if (gap > 0.25 && gap < N - 0.25) this.justC = false;
   }
-
   nextStep(st, N) {
     const r = this.rng;
     switch (this.dir) {
@@ -1128,7 +1123,7 @@ class ChiliProcessor extends AudioWorkletProcessor {
   }
   startVoice(s, i, vel, gm, rev) {
     const v = this.allocVoice();
-    if (!v.start(this, s, { step: i, vel, gateMul: gm, reverse: rev })) v.active = false;
+    if (!v.start(this, s, { step: i, vel, gateMul: gm, reverse: rev })) v.active = false; else this.lastV = v;
   }
   schedule(s, i, vel, gm, rev, at) {
     const p = this.pend.find((x) => !x.on); if (!p) return;
@@ -1151,35 +1146,6 @@ class ChiliProcessor extends AudioWorkletProcessor {
     if (active >= this.maxVoices && oldest) { oldest.killN = oldest.kill = Math.round(0.004 * this.sr); }
     if (!free) { free = oldest || this.voices[0]; free.active = false; }
     return free;
-  }
-
-  /* ---- Collide: Kollision zweier Strahlen erzeugt einen Trümmer-Schauer */
-  collision(pos, boost) {
-    const N = this.len, C = this.C, rng = this.rng, sr = this.sr;
-    const sA = mod(Math.round(pos), N), sB = mod(sA + 1, N);
-    const en = clamp(C.energy, 0, 1) * boost;
-    const count = Math.min(80, Math.round(3 + en * 26 * Math.sqrt(Math.min(4, this.sf))));
-    let spawned = 0;
-    for (let i = 0; i < count; i++) {
-      const g = this.grains.find((x) => !x.active); if (!g) break;
-      const st = this.steps[rng.next() < 0.5 ? sA : sB] || this.steps[sA]; if (!st) continue;
-      const scat = (rng.bi() * C.scatter * (0.3 + en)) / 12;
-      g.dur = Math.round((0.006 + rng.next() * 0.07) * sr); g.inv = 1 / g.dur; g.t = 0;
-      g.wait = Math.round(-Math.log(1 - rng.next() * 0.999) * C.spread * 0.001 * sr * (0.3 + en));
-      const pan = clamp(rng.bi() * (0.4 + 0.6 * Math.min(1, en)), -1, 1); panGains(pan, 'm3'); g.gl = PG[0]; g.gr = PG[1];
-      g.amp = dbLin(st.gain) * C.level * (1.2 / Math.sqrt(count)) * (0.4 + rng.next() * 0.6);
-      const sl = st.source !== 'synth' ? this.slices[st.slice | 0] : null, sm = sl ? this.samples.get(sl.sampleId) : null;
-      if (sm) {
-        const n = sm.L.length, a = Math.floor(sl.a * n), b = Math.floor(sl.b * n);
-        g.kind = 0; g.L = sm.L; g.R = sm.R; g.pos = a + rng.next() * Math.max(1, (b - a) * 0.9);
-        g.rate = Math.pow(2, ((st.pitch || 0) / 12) + scat);
-      } else {
-        g.kind = 1; g.ph = 0;
-        g.fq = Math.min(0.45, (this.refA * Math.pow(2, ((st.note ?? 60) - 69) / 12 + scat + (rng.next() < 0.5 ? 1 : 2))) / sr);
-      }
-      g.active = true; spawned++;
-    }
-    this.port.postMessage({ type: 'collision', step: sA, count: spawned, big: boost > 1, t: currentTime });
   }
 
   capState(state) { this.port.postMessage({ type: 'capState', state, countIn: this.cap.countIn, t: currentTime }); }
@@ -1247,7 +1213,6 @@ class ChiliProcessor extends AudioWorkletProcessor {
       if (this.pendN) { this.firePend(); const pn = this.pendNext(); if (pn < Infinity) { const s = Math.max(1, Math.ceil(pn - 1e-9)); if (s < seg) seg = s; } }
       const b = a + seg;
       for (const v of this.voices) if (v.active) v.render(this, bL, bR, a, b);
-      for (const g of this.grains) if (g.active) g.render(bL, bR, a, b);
       if (this.rip.p.on || this.rip.active || this.rip.mixC > 1e-6) this.rip.process(bL, bR, a, b);
       if (this.playing) this.advance(seg);
       if (this.pendN) for (const p of this.pend) if (p.on) p.at -= seg;
@@ -1303,10 +1268,11 @@ class ChiliProcessor extends AudioWorkletProcessor {
       this.port.postMessage({
         type: 'meter', pk: this.pk.slice(), over: this.over, lufs: lu.value(), gr: this.comp.gr, lim: 20 * Math.log10(Math.max(1e-6, this.limMin)),
         inPk: this.inPk.slice(), inOver: this.inOver, capN: this.cap.active ? this.cap.total : -1,
-        vz: this.voices.filter((v) => v.active).map((v) => ({ s: v.src === 0 ? v.sid : null, f: v.src === 0 && v.L ? v.pos / v.L.length : 0, e: v.env * v.vel, x: v.px, y: v.py || 0, st: v.step })),
+        vz: this.voices.filter((v) => v.active).map((v) => ({ s: v.src === 0 ? v.sid : null, f: v.src === 0 && v.L ? (v.gr ? v.gHead : v.pos) / v.L.length : 0, e: v.env * v.vel, x: v.px, y: v.py || 0, st: v.step })),
         ch: this.chEff() > 0 ? this.chSt.slice(0, 16).map((c) => c.cur) : null,
         mf: mf.on || mf.mixC > 0.001 ? { l: mf.fcL, r: mf.fcR, e: mf.env } : null, heat: this.heatC,
-        shed: this.shed || 0, voices, cpu: this.cpuT > 0 ? this.cpu / this.cpuT : 0, posA: this.posA, posB: this.posB, sf: this.sf, collide: this.C.on, playing: this.playing,
+        shed: this.shed || 0, voices, cpu: this.cpuT > 0 ? this.cpu / this.cpuT : 0, playing: this.playing,
+        ge: this.lastV && this.lastV.active ? { t: this.lastV.t / this.sr, g: this.lastV.gateN / this.sr, st: this.lastV.stage, e: this.lastV.env, f: this.lastV.fge || 0 } : null,
         rip: rp.p.on ? { x: Array.from(rp.x), y: Array.from(rp.y), active: rp.active && !rp.ending, events: rp.events, learns: rp.learns, rBar: rp.rBar } : null,
       });
       this.pk[0] = this.pk[1] = 0; this.inPk[0] = this.inPk[1] = 0; this.inOver = false; this.over = false; this.limMin = 1; this.cpu = 0; this.cpuT = 0;

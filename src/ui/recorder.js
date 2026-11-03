@@ -23,8 +23,8 @@ export function recorderView(app) {
   const meterBars = [h('span', {}), h('span', {})], clip = h('i', { class: 'clip', title: 'Eingang hat 0 dBFS erreicht' }, 'CLIP');
   const meter = h('div', { class: 'inmeter', title: 'Eingangspegel (Peak)' }, h('div', { class: 'bars' }, meterBars), clip);
   const inRow = h('div', { class: 'rec-row in-only' }, h('span', { class: 'tlabel' }, 'Eingang'), inBtn, devSel, chSeg, monBtn, meter);
-  const el = h('section', { class: 'panel recorder', 'data-help': 'Aufnahme direkt als neues Sample. Sync startet sample-genau auf Step 1, stoppt nach der gewählten Länge und schneidet exakt auf die Steps.' },
-    h('header', { class: 'ph' }, h('span', { class: 'ptitle' }, 'Aufnahme'), h('span', { class: 'grow' }), h('button', { class: 'ibtn', onclick: () => app.toggleRecorder() }, '✕')),
+  const el = h('section', { class: 'mod recorder', 'data-help': 'Aufnahme direkt als neues Sample. Sync startet sample-genau auf Step 1, stoppt nach der gewählten Länge und schneidet exakt auf die Steps.' },
+    h('header', { class: 'mh' }, h('span', { class: 'mtitle' }, 'REC')),
     h('div', { class: 'rec-body' },
       h('div', { class: 'rec-ctrl' },
         h('div', { class: 'rec-row' }, h('span', { class: 'tlabel' }, 'Quelle'), srcSeg, h('span', { class: 'tlabel' }, 'Modus'), modeSeg),
