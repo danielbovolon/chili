@@ -27,18 +27,18 @@ export function chaosView(app) {
     [['rel', 'RELATIV'], ['abs', 'ABSOLUT']].map(([v, l]) => h('button', { 'data-v': v, onclick: () => { set('mode', v); el.refresh(); } }, l)));
   const seed = diceBtn('', 'Neuer Seed: neue Zufallsfolge.', () => { C().seed = (Math.random() * 1e9) | 0; app.commit(); });
   const targets = h('div', { class: 'targets' });
+  const mini = (t, help, fn, cls = '') => h('button', { class: `tbtn ${cls}`, 'data-help': help, onclick: fn }, t);
+  const all = mini('ALLE', 'Alle Reihen als Ziel.', () => { C().targets = ['gate', ...LAYERS.map((l) => l.id)]; app.commit(); el.refresh(); });
+  const none = mini('KEINE', 'Keine Ziele.', () => { C().targets = []; app.commit(); el.refresh(); });
+  const inf = mini('∞', 'Unendlich: alle Reihen (außer den CPU-hungrigen Delay/Reverb pro Step — einzeln zuschaltbar), Tiefe 100 %, neuer Wert auf jedem Step: jeder Parameter jedes Steps ändert sich ständig.', () => { Object.assign(C(), { on: true, depth: 1, rate: 1, prob: 1, rand: 1, shape: 0, lock: 0, mode: 'abs', targets: ['gate', ...LAYERS.map((l) => l.id).filter((id) => id !== 'rev' && id !== 'dly')] }); app.commit(); el.refresh(); }, 'hot');
   const el = h('section', { class: 'mod chaos', 'data-help': 'Chaos — Zufallsmodulator für jeden Parameter jedes Steps, angelehnt an VCV Random.' },
-    h('header', { class: 'mh' }, h('span', { class: 'mtitle' }, 'CHAOS'), mode, seed, sw),
+    h('header', { class: 'mh' }, h('span', { class: 'mtitle' }, 'CHAOS'), mode, seed, inf, sw),
     cv,
     h('div', { class: 'prow tight' }, ks),
-    targets,
-    h('div', { class: 'rowline' },
-      h('button', { class: 'btn', 'data-help': 'Alle Reihen als Ziel.', onclick: () => { C().targets = ['gate', ...LAYERS.map((l) => l.id)]; app.commit(); el.refresh(); } }, 'Alle'),
-      h('button', { class: 'btn', 'data-help': 'Keine Ziele.', onclick: () => { C().targets = []; app.commit(); el.refresh(); } }, 'Keine'),
-      h('button', { class: 'btn hot', 'data-help': 'Unendlich: alle Reihen (außer den CPU-hungrigen Delay/Reverb pro Step — einzeln zuschaltbar), Tiefe 100 %, neuer Wert auf jedem Step: jeder Parameter jedes Steps ändert sich ständig.', onclick: () => { Object.assign(C(), { on: true, depth: 1, rate: 1, prob: 1, rand: 1, shape: 0, lock: 0, mode: 'abs', targets: ['gate', ...LAYERS.map((l) => l.id).filter((id) => id !== 'rev' && id !== 'dly')] }); app.commit(); el.refresh(); app.refreshPart('bay'); } }, '∞ Unendlich')));
+    h('div', { class: 'targets' }, all, none, targets));
   el.refresh = () => {
     const c = C();
-    sw.classList.toggle('on', c.on); el.classList.toggle('off', !c.on && !app.project.macros.chaos);
+    sw.classList.toggle('on', c.on); el.classList.toggle('off', !c.on);
     ks.forEach((k) => k.update());
     mode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === c.mode));
     targets.innerHTML = '';

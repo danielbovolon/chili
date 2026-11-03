@@ -111,7 +111,7 @@ export function makeStep(over = {}) {
 /* ---- Master / Collide / Rip */
 export const MASTER_GROUPS = [
   { id: 'comp', title: 'Compressor', params: [K('thr', 'Thresh', -60, 0, -18, 'db'), K('ratio', 'Ratio', 1, 20, 3, 'ratio', { c: 'log' }), K('atk', 'Attack', 0.1, 100, 10, 'ms', { c: 'log' }), K('rel', 'Release', 10, 2000, 120, 'ms', { c: 'log' }), K('knee', 'Knee', 0, 18, 6, 'db'), K('makeup', 'Gain', 0, 24, 0, 'db'), K('mix', 'Mix', 0, 1, 0, '%')] },
-  { id: 'delay', title: 'Delay', params: [S('sync', 'Zeit', SYNC_OPTS, '1/8D'), K('fb', 'FB', 0, 0.95, 0.35, '%'), K('tone', 'Ton', 0, 1, 0.6, '%'), T('pp', 'P·P', true), K('mix', 'Mix', 0, 1, 0, '%')] },
+  { id: 'delay', title: 'Delay', params: [S('sync', 'Zeit', SYNC_OPTS, '1/8D'), K('fb', 'FB', 0, 0.95, 0.35, '%'), K('tone', 'Ton', 0, 1, 0.6, '%'), K('mod', 'Wow', 0, 1, 0, '%'), K('shift', 'Shimmer', -12, 12, 0, 'st', { int: true }), T('pp', 'P·P', true), K('mix', 'Mix', 0, 1, 0, '%')] },
   { id: 'verb', title: 'Reverb', params: [K('size', 'Größe', 0, 1, 0.7, '%'), K('decay', 'Decay', 0.2, 20, 2.4, 's', { c: 'log' }), K('damp', 'Damp', 0, 1, 0.4, '%'), K('pre', 'Pre', 0, 250, 20, 'ms'), K('mix', 'Mix', 0, 1, 0, '%')] },
 ];
 export const RIP_DEFS = [
@@ -120,7 +120,7 @@ export const RIP_DEFS = [
   K('pitch', 'Drift', 0, 12, 0, 'st'), K('decay', 'Zerf.', 0, 1, 0.2, '%'),
 ];
 const defaults = (defs) => Object.fromEntries(defs.map((d) => [d.k, d.def]));
-export const masterDefaults = () => ({ comp: defaults(MASTER_GROUPS[0].params), delay: defaults(MASTER_GROUPS[1].params), verb: defaults(MASTER_GROUPS[2].params), fader: 0.8, filter: mfDefaults() });
+export const masterDefaults = () => ({ comp: { on: false, ...defaults(MASTER_GROUPS[0].params) }, delay: { on: false, ...defaults(MASTER_GROUPS[1].params) }, verb: { on: false, ...defaults(MASTER_GROUPS[2].params) }, fader: 0.8, filter: mfDefaults() });
 export const ripDefaults = () => ({ on: false, freeze: false, seed: 1, ...defaults(RIP_DEFS) });
 
 /* ---- Laufrichtung */

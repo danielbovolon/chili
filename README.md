@@ -1,4 +1,4 @@
-# 🌶 Chili — v0.4
+# 🌶 Chili — v0.5
 
 **Ein Step-Sequencer wie die Konsole eines Raumschiffs.** Importiertes Audio oder Synth, 4–32 Steps, jeder Parameter jedes Steps direkt zeichenbar, acht Makros, die Klang und Struktur der ganzen Sequenz umbauen, ein Zufallsmodulator für unendliche Komplexität — und drei eigene Systeme: **Mutate**, **Chaos**, **Rip**.
 
@@ -23,15 +23,15 @@ Browser: Chrome/Edge empfohlen. `file://` geht nicht (AudioWorklet braucht http/
 | **Deck** (eine Zeile) | Play · Bounce · Tempo-LCD (BPM / Hz / Note) · Steps · Raster · Laufrichtung · Swing · 8 Makros · globale Würfel · Pattern · Undo |
 | **Sample** | kompakte Wellenform mit Zoom, Übersicht, Slices, Live-Abspielköpfen · Slice-Modi · **⟁ Peaks** |
 | **Layer-Stack** | 15 Layer, jeder Parameter eine Lane über alle Steps |
-| **Rack** (ohne Tabs, alles sichtbar) | MONITOR (Oszilloskop + Spektrum) · SURROUND · AMP-ENV · FILTER-ENV · REC · FILTER · FX · CHAOS · RIP |
+| **Rack** (ohne Tabs, alles sichtbar) | links: FILTER (mit FILTER-ENV) · FX · CHAOS · RIP — rechts: MONITOR (Oszilloskop + Spektrum) · SURROUND · AMP-ENV · REC |
 | **MASTER** | Fader (max. 0 dB), LED-Meter, Peak, LUFS, Limiter, DSP |
 
-Bei 1440×900 und 1920×1080 passt das ganze Rack ohne Scrollen. Auf dem Phone teilt eine Tab-Leiste die Konsole in **SEQ · MAKRO · RACK · MASTER**.
+Bei 1920×1080 passt das ganze Rack ohne Scrollen; auf kleineren Bildschirmen scrollt jede Rack-Spalte für sich. Auf dem Phone teilt eine Tab-Leiste die Konsole in **SEQ · MAKRO · RACK · MASTER**.
 Knobs im Ableton-Stil: Name oben, Bogen mit Zeiger, Wert unten — ziehen, Shift fein, Mausrad, Doppelklick = Standardwert.
 
 ### Sample navigieren
 Mausrad zoomt um den Cursor · Shift+Rad oder horizontal wischen verschiebt · Ziehen auf freier Fläche verschiebt · Klick auf eine Slice-Nummer zoomt auf den Slice · **− + ⤢** · Übersichtsleiste darunter: Fenster ziehen, Doppelklick = alles.
-Marker ziehen ändert Slice-Grenzen, Doppelklick setzt einen Marker, Rechtsklick entfernt ihn.
+Marker ziehen ändert Slice-Grenzen — auch Anfang des ersten und Ende des letzten Slices —, Doppelklick setzt einen Marker, Rechtsklick entfernt ihn.
 
 ### ⟁ Peaks finden
 Sucht die stärksten Einschwingvorgänge im ganzen Sample (logarithmischer Energiefluss, Mindestabstand 45 ms), schneidet kurz vor jedem Peak auf dem nächsten Nulldurchgang und legt einen Peak auf jeden Step.
@@ -50,6 +50,13 @@ Kreisfeld mit Hörer und 5.1-Lautsprechern. Jeder Step ist ein Punkt — direkt 
 
 ### Master-Filter
 Der Frequenzgang bewegt sich selbst mit der Modulation (Hüllkurvenfolger, LFO) — links rot, rechts cyan.
+
+## 🌀 TRIP — psychedelische Sequenzen
+Ein Klick baut eine psychedelische Sequenz: langsame Phaser- und Flanger-Bahnen pro Step, Bandleiern (Mutate-Warp), Shimmer-Delay mit Wow, große Räume, kreisende Stimmen im Surround, Filterformen im Loop, Granular-Wolken, sanfter Chaos-Drift, Master-Filter mit langsamem Stereo-LFO. Jeder Wurf ist anders; Strg/⌘+Z nimmt ihn zurück.
+**Master-Delay** dafür neu: **Wow** (Band-Modulation der Delayzeit) und **Shimmer** (±12 Halbtöne Pitch-Shift im Feedback — jede Wiederholung eine Oktave höher).
+
+## Ein = ein, aus = aus
+Jeder Schalter zeigt, was wirklich passiert: Chaos aus ist aus, auch wenn das Chaos-Makro hochsteht; Comp/Delay/Reverb haben eigene Schalter — aus ist aus, auch wenn das Raum-Makro höher steht. Umgekehrt schaltet ein Mix-Knopf über 0 sein Modul ein, das Chaos-Makro schaltet Chaos ein, das Raum-Makro über der Mitte schaltet Master-Delay und -Hall ein. Ein Test prüft bit-genau, dass ausgeschaltete Module nichts am Signal ändern.
 
 ## Einfach bis extrem komplex
 - **Einfach:** Sample reinziehen → wird automatisch gesliced und auf die Steps gelegt → Play.
@@ -136,6 +143,7 @@ Layer ein-/ausblenden über die Leiste, Bypass ⏻ pro Layer, auf-/zuklappen fü
 | Globale Amp-Hüllkurve (Decay 40 ms, Sustain 0) | nach 0.4 s Stille (−240 dB) |
 | Globale Filter-Hüllkurve −8 Okt auf Step ohne Filter | 20. Oberton −59 → −126 dB |
 | Granular: 12 Stimmen × 200 Körner/s, ±24 st | stabil, 13 % Echtzeit |
+| Chaos aus + FX aus bei Makro/Mix 100 % | bit-genau wie ohne |
 | Sync-Aufnahme mit Count-in + Latenzausgleich | sample-genau |
 
 **CPU-Schutz:** Bei Dauerlast über 85 % blendet die Engine die ältesten Ausklänge (Delay-/Hall-Tails) in 6 ms aus, statt Dropouts zu riskieren.

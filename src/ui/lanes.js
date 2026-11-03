@@ -30,7 +30,7 @@ function kindOf(key) {
   return d.int ? 'int' : 'bar';
 }
 const isDiscrete = (k) => k === 'tog' || k === 'sel' || k === 'gate';
-const laneH = (kind, primary) => (kind === 'gate' ? 24 : kind === 'tog' || kind === 'sel' ? 22 : kind === 'slice' ? (primary ? 44 : 36) : primary ? 38 : 30);
+const laneH = (kind, primary) => (kind === 'gate' ? 28 : kind === 'tog' || kind === 'sel' ? 25 : kind === 'slice' ? (primary ? 52 : 42) : primary ? 44 : 34);
 
 /* ---------- Farben */
 const hexRgb = (hx) => { const n = parseInt(hx.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
@@ -218,8 +218,8 @@ export function stackView(app) {
   }
   function rulerRow() {
     const cv = h('canvas', { class: 'lane-cv' });
-    const row = h('div', { class: 'lane k-ruler', style: { height: '16px' }, 'data-help': 'Step-Nummer anklicken: Step vorhören.' }, h('div', { class: 'lane-l' }, h('span', { class: 'ln dim' }, 'Step')), h('div', { class: 'lane-c' }, cv));
-    const lane = { key: 'ruler', kind: 'ruler', layer: null, cv, H: 16, row };
+    const row = h('div', { class: 'lane k-ruler', style: { height: '18px' }, 'data-help': 'Step-Nummer anklicken: Step vorhören.' }, h('div', { class: 'lane-l' }, h('span', { class: 'ln dim' }, 'Step')), h('div', { class: 'lane-c' }, cv));
+    const lane = { key: 'ruler', kind: 'ruler', layer: null, cv, H: 18, row };
     cv.addEventListener('pointerdown', (e) => { const i = stepAt(lane, e); if (i >= 0) app.audition(i); });
     cv.addEventListener('pointermove', (e) => setHover(stepAt(lane, e), null));
     cv.addEventListener('pointerleave', () => setHover(-1, null));

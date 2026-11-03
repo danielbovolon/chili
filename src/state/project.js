@@ -39,6 +39,7 @@ export function normalizeProject(p) {
   out.rip = { ...base.rip, ...(p.rip || {}) };
   const m = p.master || {};
   out.master = { comp: { ...base.master.comp, ...(m.comp || {}) }, delay: { ...base.master.delay, ...(m.delay || {}) }, verb: { ...base.master.verb, ...(m.verb || {}) }, filter: { ...mfDefaults(), ...(m.filter || {}) }, fader: m.fader ?? base.master.fader };
+  for (const k of ['comp', 'delay', 'verb']) if (!m[k] || m[k].on === undefined) out.master[k].on = out.master[k].mix > 0; // alte Projekte: an, wenn Mix > 0
   out.macros = { ...macroDefaults(), ...(p.macros || {}) };
   out.chaos = { ...chaosDefaults(), ...(p.chaos || {}) };
   out.slices = p.slices || []; out.samples = p.samples || [];

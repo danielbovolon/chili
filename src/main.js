@@ -15,7 +15,7 @@ import { ripView } from './ui/special.js';
 import { masterFxView, filterView, outView } from './ui/master.js';
 import { projectsView, settingsView } from './ui/pages.js';
 
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 export const APP_NAME = 'CHILI'; // Name an einer Stelle — für die Umbenennung
 const SETTINGS_KEY = 'chili.settings', LAST_KEY = 'chili.lastProject';
 const defaultSettings = () => ({ sampleRate: 'auto', latency: 'interactive', outputDevice: '', quality: '16', maxVoices: 16, limiter: true, ceiling: -0.3, panLaw: 'm3', refA: 440, noteFloor: 70, peakHold: 1.5, exportBits: '24', dither: true, inputDevice: '', inputCh: 'stereo', recAutoComp: true, recOffset: 0, autosave: 30 });
@@ -63,6 +63,43 @@ app.snapshot = () => { app.undoStack.push(snap()); if (app.undoStack.length > 15
 function restore(j) { const o = JSON.parse(j); app.project.steps = o.steps; app.project.layers = o.layers; app.project.transport.length = o.length; app.project.rip.on = o.rip; app.commit('transport', 'stack', 'special'); }
 app.undo = () => { if (!app.undoStack.length) return; app.redoStack.push(snap()); restore(app.undoStack.pop()); };
 app.redo = () => { if (!app.redoStack.length) return; app.undoStack.push(snap()); restore(app.redoStack.pop()); };
+/** TRIP: erzeugt eine psychedelische Sequenz — langsame Phaser-/Flanger-Bahnen, Bandleiern, Shimmer-Delay,
+ *  große Räume, kreisende Stimmen, Filterformen im Loop, Granular-Wolken, sanfter Chaos-Drift. Jeder Wurf ist anders. */
+app.trip = () => {
+  const p = app.project, L = p.transport.length, r = Math.random, pick = (a) => a[(r() * a.length) | 0], rr = (a, b) => a + (b - a) * r();
+  const hasS = p.slices.length > 0;
+  app.snapshot();
+  p.steps.forEach((s, i) => {
+    if (i >= L) return;
+    s.on = r() < 0.72;
+    s.pitch = pick([0, 0, 0, 7, 12, -12, 5, -5, 19]); s.fine = Math.round(rr(-12, 12));
+    s.gate = pick([1, 1.5, 2, 3, 4]); s.atk = Math.round(rr(5, 220)); s.dec = Math.round(rr(400, 2500)); s.sus = +rr(0.3, 0.8).toFixed(2); s.rel = Math.round(rr(300, 1600));
+    s.fType = pick(['lp', 'bp', 'lp', 'notch']); s.cutoff = Math.round(rr(350, 2400)); s.res = +rr(0.45, 0.85).toFixed(2);
+    s.fEnvShape = pick(['rndSmooth', 'sine', 'triangle', 'chaos', 'rndWalk', 'random']); s.fEnvLoop = true; s.fEnvTime = pick([2, 3, 4, 6, 8]); s.fEnvAmt = +rr(1.5, 4.5).toFixed(1);
+    s.phaserMix = r() < 0.55 ? +rr(0.4, 0.9).toFixed(2) : 0; s.phaserRate = +rr(0.04, 0.5).toFixed(2); s.phaserDepth = +rr(0.6, 1).toFixed(2); s.phaserFb = +rr(0.5, 0.85).toFixed(2);
+    s.flangerMix = r() < 0.3 ? +rr(0.4, 0.8).toFixed(2) : 0; s.flangerRate = +rr(0.03, 0.25).toFixed(2); s.flangerFb = +(r() < 0.5 ? rr(0.5, 0.8) : rr(-0.8, -0.5)).toFixed(2);
+    s.pmDepth = r() < 0.4 ? +rr(0.08, 0.5).toFixed(2) : 0; s.pmRate = +rr(0.2, 3).toFixed(2); s.pmShape = pick(['sine', 'tri', 'smooth']);
+    s.mutate = +rr(0.3, 0.8).toFixed(2); s.mutRate = +rr(0.2, 1.5).toFixed(2); s.mutWarp = +rr(0.5, 1).toFixed(2); s.mutPitch = +rr(0.1, 0.4).toFixed(2); s.mutPan = +rr(0.4, 0.9).toFixed(2); s.mutFilter = +rr(0.4, 0.9).toFixed(2);
+    s.delayMix = r() < 0.5 ? +rr(0.25, 0.55).toFixed(2) : 0; s.delaySync = pick(['1/8D', '1/4D', '1/8T', '1/4', '1/16D']); s.delayFb = +rr(0.45, 0.75).toFixed(2); s.delayPP = true; s.delayTone = +rr(0.3, 0.7).toFixed(2);
+    s.verbMix = r() < 0.45 ? +rr(0.25, 0.55).toFixed(2) : 0; s.verbSize = +rr(0.75, 1).toFixed(2); s.verbDecay = +rr(3, 10).toFixed(1);
+    s.orbit = +rr(0.25, 0.9).toFixed(2); s.orbitRate = +rr(0.04, 0.5).toFixed(2); s.depth = +rr(0, 0.6).toFixed(2); s.spread = +rr(1.3, 2).toFixed(2); s.pan = +rr(-0.6, 0.6).toFixed(2);
+    s.ratchet = r() < 0.12 ? pick([2, 3]) : 1; s.ratchVel = -0.6;
+    s.grMode = hasS && s.source !== 'synth' && r() < 0.35; s.grSize = Math.round(rr(60, 220)); s.grDensity = Math.round(rr(18, 60)); s.grSpray = +rr(0.2, 0.6).toFixed(2); s.grScan = +rr(-0.5, 0.6).toFixed(2); s.grPitch = pick([0, 0, 0.3, 7, 12]); s.grWidth = 1;
+  });
+  for (const id of ['phs', 'flg', 'pmd', 'dly', 'rev', 'pan', 'mut', 'flt', 'env']) { p.layers[id].on = true; }
+  for (const id of ['phs', 'dly', 'rev', 'pan', 'mut', 'flt']) p.layers[id].show = true;
+  if (hasS) { p.layers.grn.on = true; p.layers.grn.show = true; }
+  Object.assign(p.macros, { warp: +rr(0.2, 0.4).toFixed(2), space: +rr(0.65, 0.85).toFixed(2), heat: +rr(0.15, 0.35).toFixed(2), density: +rr(0.5, 0.62).toFixed(2), chaos: +rr(0.15, 0.35).toFixed(2) });
+  Object.assign(p.chaos, { on: true, mode: 'rel', depth: +rr(0.3, 0.5).toFixed(2), rate: pick([2, 3, 4]), prob: 0.9, rand: 0.6, shape: 2, lock: 0.5, loop: 8, targets: ['flt', 'pan', 'phs', 'pmd', 'mut'] });
+  const f = p.master.filter; Object.assign(f, { on: true, type: pick(['formant', 'bp', 'lp', 'notch']), slope: 2, cutoff: Math.round(rr(500, 1800)), res: +rr(0.4, 0.7).toFixed(2), lfoDepth: +rr(1, 2.2).toFixed(1), lfoSync: pick(['1/1', '1/2', 'off']), lfoRate: +rr(0.05, 0.2).toFixed(2), lfoShape: pick(['sine', 'smooth', 'tri']), stereo: +rr(0.3, 0.7).toFixed(2), mix: +rr(0.45, 0.75).toFixed(2), vowel: +rr(0, 4).toFixed(1) });
+  Object.assign(p.master.delay, { on: true, mix: +rr(0.2, 0.35).toFixed(2), fb: +rr(0.5, 0.7).toFixed(2), mod: +rr(0.2, 0.6).toFixed(2), shift: r() < 0.55 ? 12 : pick([0, 7, -12]), sync: pick(['1/4D', '1/8D', '1/2']) });
+  Object.assign(p.master.verb, { on: true, mix: +rr(0.25, 0.4).toFixed(2), size: 0.95, decay: +rr(6, 14).toFixed(1), damp: 0.35 });
+  const ge = p.genv; ge.flt.on = r() < 0.5; ge.flt.amt = +rr(1, 3).toFixed(1); ge.flt.atk = Math.round(rr(50, 600)); ge.flt.dec = Math.round(rr(600, 2500));
+  p.transport.direction = pick(['fwd', 'pp', 'brown', 'fwd']);
+  app.commit('transport', 'stack', 'master', 'special', 'source');
+  app.views.chaos.refresh(); app.views.ampEnv.refresh(); app.views.fltEnv.refresh();
+  toast('TRIP — psychedelische Sequenz erzeugt');
+};
 app.patternOp = (op) => {
   const p = app.project, t = p.transport, L = t.length;
   app.snapshot();
@@ -333,8 +370,9 @@ document.addEventListener('mouseover', (e) => { const t = e.target.closest && e.
 
 // Rack: alle Module gleichzeitig sichtbar, keine Tabs
 const rack = h('div', { class: 'rack' },
-  h('div', { class: 'rcol' }, V.monitor, V.surround, V.ampEnv, V.fltEnv, V.recorder),
-  h('div', { class: 'rcol' }, V.filter, V.fx, V.chaos, V.rip));
+  h('div', { class: 'rcol' }, V.filter, V.fx, V.chaos, V.rip),
+  h('div', { class: 'rcol' }, V.monitor, V.surround, V.ampEnv, V.recorder));
+V.filter.append(V.fltEnv); // Filter-Hüllkurve gehört zum Filter
 const seqPage = h('div', { class: 'body' }, h('div', { class: 'main' }, V.viewport, V.stack), rack, V.out);
 const pages = { seq: seqPage, projects: h('div', { class: 'body page-wrap' }, V.projects), settings: h('div', { class: 'body page-wrap' }, V.settings) };
 const mtabs = h('nav', { class: 'mtabs' }, [['seq', 'SEQ'], ['macro', 'MAKRO'], ['bay', 'RACK'], ['out', 'MASTER']].map(([id, l]) => h('button', { 'data-m': id, onclick: () => setMobile(id) }, l)));
@@ -342,9 +380,9 @@ function setMobile(id) { device.dataset.m = id; mtabs.querySelectorAll('button')
 const device = h('div', { class: 'device', 'data-m': 'seq' }, header, V.deck, pages.seq, pages.projects, pages.settings, helpbar, mtabs);
 
 /* Startseite: nur ein Knopf */
-const startBtn = h('button', { class: 'start-btn' }, 'Audio starten');
+const startBtn = h('button', { class: 'start-btn', 'aria-label': 'Audio starten' }, h('span', { class: 'moire' }), h('span', { class: 'core' }, h('i', {}, 'AUDIO'), h('b', {}, 'START')));
 const gate = h('div', { class: 'gate' }, startBtn);
-startBtn.addEventListener('click', () => { startBtn.disabled = true; ensureAudio().then(() => { gate.classList.add('out'); setTimeout(() => gate.remove(), 400); }).catch(() => { startBtn.disabled = false; }); });
+startBtn.addEventListener('click', () => { startBtn.disabled = true; gate.classList.add('lit'); ensureAudio().then(() => { setTimeout(() => gate.classList.add('out'), 250); setTimeout(() => gate.remove(), 800); }).catch(() => { startBtn.disabled = false; }); });
 root.append(device, gate, h('div', { class: 'toasts' }));
 setMobile('seq'); go('seq');
 

@@ -689,19 +689,36 @@ class MDelay {
     this.cur = sr * 0.3; this.tgt = this.cur; this.glide = 1 - Math.exp(-1 / (0.06 * sr));
     this.lpL = this.lpR = this.loL = this.loR = 0; this.hc = 1 - Math.exp((-TAU * 90) / sr);
     this.fb = 0.35; this.c = 0.5; this.pp = true;
+    // Tape-Modulation und Shimmer (Pitch-Shift im Feedback, zwei Leseköpfe mit sin²-Überblendung)
+    this.mod = 0; this.lph = 0; this.shift = 0; this.ratio = 1;
+    this.sL = new Float32Array(4096); this.sR = new Float32Array(4096); this.sw = 0; this.sph = 0;
   }
   set(p, wholeSec) {
     this.tgt = clamp((SYNC[p.sync] || 0.1875) * wholeSec * this.sr, 8, this.mask - 8);
     this.fb = clamp(p.fb, 0, 0.95); this.pp = !!p.pp;
     this.c = 1 - Math.exp((-TAU * Math.min(0.45 * this.sr, 700 + p.tone * p.tone * 17000)) / this.sr);
+    this.mod = clamp(p.mod || 0, 0, 1); this.shift = Math.round(p.shift || 0); this.ratio = Math.pow(2, this.shift / 12);
   }
   process(l, r) {
     this.cur += (this.tgt - this.cur) * this.glide;
-    const m = this.mask, w = this.w;
-    const oL = hermRead(this.L, m, w, this.cur), oR = hermRead(this.R, m, w, this.cur);
+    const m = this.mask, w = this.w, sr = this.sr;
+    let d = this.cur;
+    if (this.mod > 0) { // Wow + Flutter
+      this.lph += 0.31 / sr; if (this.lph >= 1) this.lph -= 1;
+      d += this.mod * sr * (0.006 * (0.5 + 0.5 * Math.sin(TAU * this.lph)) + 0.0007 * Math.sin(TAU * this.lph * 23.7));
+    }
+    const oL = hermRead(this.L, m, w, d), oR = hermRead(this.R, m, w, d);
     this.lpL += this.c * (oL - this.lpL); this.lpR += this.c * (oR - this.lpR);
     this.loL += this.hc * (this.lpL - this.loL); this.loR += this.hc * (this.lpR - this.loR);
-    const fL = (this.lpL - this.loL) * this.fb, fR = (this.lpR - this.loR) * this.fb;
+    let fL = (this.lpL - this.loL) * this.fb, fR = (this.lpR - this.loR) * this.fb;
+    if (this.shift !== 0) {
+      const WN = 2048, pm = 4095, sw = this.sw; this.sL[sw] = fL; this.sR[sw] = fR;
+      let ph = this.sph + (1 - this.ratio) / WN; ph -= Math.floor(ph); this.sph = ph;
+      const p2 = ph + 0.5 >= 1 ? ph - 0.5 : ph + 0.5, g1 = Math.sin(PI * ph) ** 2, g2 = Math.sin(PI * p2) ** 2;
+      fL = hermRead(this.sL, pm, sw, ph * WN + 3) * g1 + hermRead(this.sL, pm, sw, p2 * WN + 3) * g2;
+      fR = hermRead(this.sR, pm, sw, ph * WN + 3) * g1 + hermRead(this.sR, pm, sw, p2 * WN + 3) * g2;
+      this.sw = (sw + 1) & pm;
+    }
     if (this.pp) { this.L[w] = (l + r) * 0.5 + fR; this.R[w] = fL; } else { this.L[w] = l + fL; this.R[w] = r + fR; }
     this.w = (w + 1) & m; FO[0] = this.lpL; FO[1] = this.lpR;
   }
@@ -1007,7 +1024,8 @@ class ChiliProcessor extends AudioWorkletProcessor {
     if (M) {
       this.comp.set(M.comp); this.mdel.set(M.delay, this.wholeSec); this.mverb.set(M.verb);
       const sp = Math.max(0, this.M.space - 0.5); // Makro „Raum": mehr Master-Delay/-Hall
-      this.mixT[0] = clamp(M.comp.mix, 0, 1); this.mixT[1] = clamp(M.delay.mix + sp * 0.6, 0, 1); this.mixT[2] = clamp(M.verb.mix + sp * 0.8, 0, 1);
+      const on = (x) => x.on !== false; // FX-Schalter: aus = Mix 0, auch wenn das Raum-Makro höher steht
+      this.mixT[0] = on(M.comp) ? clamp(M.comp.mix, 0, 1) : 0; this.mixT[1] = on(M.delay) ? clamp(M.delay.mix + sp * 0.6, 0, 1) : 0; this.mixT[2] = on(M.verb) ? clamp(M.verb.mix + sp * 0.8, 0, 1) : 0;
       this.mf.set(M.filter, this.wholeSec);
       const pos = clamp(M.fader, 0, 1); this.fgT = pos * pos; // max. 0 dB
     }
@@ -1043,7 +1061,7 @@ class ChiliProcessor extends AudioWorkletProcessor {
   }
 
   /* ---- Chaos-Zufallsmodulator: pro Ziel-Parameter ein eigener Zufallskanal, getaktet in Steps */
-  chEff() { const c = this.ch, b = c.on ? clamp(c.depth, 0, 1) : 0; return clamp(b + this.M.chaos * (1 - b), 0, 1); }
+  chEff() { const c = this.ch; if (!c.on) return 0; const b = clamp(c.depth, 0, 1); return clamp(b + this.M.chaos * (1 - b), 0, 1); } // aus = wirklich aus
   chaosTick() {
     if (!this.chSt.length || this.chEff() <= 0) return;
     const c = this.ch, rate = Math.max(1, c.rate | 0), r = this.chRng, loop = clamp(c.loop | 0, 2, 32);

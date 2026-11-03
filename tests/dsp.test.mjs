@@ -42,7 +42,7 @@ for (let i = 0; i < n; i++) { const t = i / SR, env = Math.exp(-((t * 4) % 1) * 
     mutate: 1, panRnd: 1, panModDepth: 1, autopan: 1, tremDepth: 1, tremShape: 'square', pmDepth: 3, phaserMix: 1, phaserFb: 0.9, flangerMix: 1, flangerFb: 0.9, chorusMix: 1,
     delayMix: 1, delayFb: 0.95, verbMix: 1, verbDecay: 12, gain: 6, reverse: i % 2 === 1, loop: i % 4 === 1, grMode: i % 3 === 2, grPitch: 12, grSpray: 1, grDensity: 200, grSize: 300,
   }));
-  const master = masterDefaults(); master.comp.mix = 1; master.delay.mix = 0.5; master.delay.fb = 0.9; master.verb.mix = 0.6; master.verb.decay = 20; master.fader = 1;
+  const master = masterDefaults(); master.comp.on = master.delay.on = master.verb.on = true; master.comp.mix = 1; master.delay.mix = 0.5; master.delay.fb = 0.95; master.delay.shift = 12; master.delay.mod = 1; master.verb.mix = 0.6; master.verb.decay = 20; master.fader = 1;
   const genv = genvDefaults(); genv.amp.on = true; genv.flt.on = true; genv.flt.amt = 8;
   const rip = { ...ripDefaults(), on: true, chance: 1, plast: 1, pitch: 12 };
   p.onMsg({ type: 'settings', panLaw: 'm3', limiter: true, ceiling: -0.3, refA: 440 });
@@ -227,6 +227,20 @@ for (const lobes of [12, 16, 24]) {
   const t0 = performance.now(); const o = render(p, 4); const ms = performance.now() - t0;
   let fin = true, pk = 0; for (const v of o.L) { if (!Number.isFinite(v)) fin = false; pk = Math.max(pk, Math.abs(v)); }
   ok(fin && pk > 0.01, `Granular: 12 Stimmen × 200 Körner/s, ±24 st — stabil (Peak ${db(pk).toFixed(1)} dBFS), Last ${((ms / 4000) * 100).toFixed(1)} % Echtzeit`);
+}
+
+/* 14. Aus = wirklich aus: Chaos aus trotz Makro 100 %, FX aus trotz Mix 100 % → bit-genau wie ohne */
+{
+  const run = (mutate) => {
+    const p = mk(); const a = new Float32Array(SR); for (let i = 0; i < SR; i++) a[i] = Math.sin(i * 0.05) * 0.3;
+    p.onMsg({ type: 'sample', id: 'y', L: a, R: a.slice() }); p.onMsg({ type: 'settings', limiter: false, panLaw: 'bal' });
+    const m = masterDefaults(); m.fader = 1; const st = { ...state([makeStep({ source: 'sample', slice: 0, gate: 16, atk: 0, sus: 1 }), ...Array.from({ length: 31 }, () => makeStep({ on: false }))], { slices: [{ sampleId: 'y', a: 0, b: 1 }], master: m }) };
+    if (mutate) { Object.assign(m.comp, { mix: 1, on: false }); Object.assign(m.delay, { mix: 1, on: false, shift: 12 }); Object.assign(m.verb, { mix: 1, on: false }); st.macros = { ...macroDefaults(), chaos: 1 }; st.chaos = { ...chaosDefaults(), on: false, keys: chaosKeys(['flt', 'pan', 'src']) }; }
+    p.onMsg({ type: 'state', state: st }); for (let i = 0; i < 200; i++) render(p, 128 / SR);
+    p.onMsg({ type: 'audition', step: 0 }); return render(p, 0.4).L;
+  };
+  const a = run(false), b = run(true); let d = 0; for (let i = 0; i < a.length; i++) d = Math.max(d, Math.abs(a[i] - b[i]));
+  ok(d === 0, `Aus = aus: Chaos aus (Makro 100 %), Comp/Delay/Reverb aus (Mix 100 %) → identisch zum Original (Abweichung ${d})`);
 }
 
 console.log(fails ? `\n${fails} Test(s) fehlgeschlagen` : '\nAlle Tests bestanden 🌶');

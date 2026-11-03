@@ -9,17 +9,21 @@ const dbToPos = (d) => Math.pow(10, d / 40);
 /* ================================================================ MASTER-EFFEKTE */
 export function masterFxView(app) {
   const M = () => app.project.master, rows = [];
+  const sws = [];
   const sections = MASTER_GROUPS.map((g) => {
-    const row = paramRow(g.params, (k) => M()[g.id][k], (k, v) => { M()[g.id][k] = v; app.commit(); }, { small: true });
+    const sw = h('button', { class: 'switch', 'data-help': `${g.title} ein/aus. Aus = wirklich aus, auch wenn das Raum-Makro höher steht.`, onclick: () => { M()[g.id].on = !M()[g.id].on; app.commit(); el.refresh(); } });
+    sw.fx = g.id; sws.push(sw);
+    const row = paramRow(g.params, (k) => M()[g.id][k], (k, v) => { M()[g.id][k] = v; if (!M()[g.id].on && (k === 'mix' ? v > 0 : true)) { M()[g.id].on = true; } app.commit(); el.refreshSw(); }, { small: true });
     rows.push(row);
     const extra = g.id === 'comp' ? h('div', { class: 'grbar', 'data-help': 'Gain-Reduktion des Compressors.' }, h('span', {})) : null;
     row.classList.add('tight');
-    return h('div', { class: `fxrow m-${g.id}` }, h('div', { class: 'fxl' }, h('span', {}, g.title === 'Compressor' ? 'COMP' : g.title.toUpperCase()), extra), row);
+    return h('div', { class: `fxrow m-${g.id}` }, h('div', { class: 'fxl' }, h('span', {}, g.title === 'Compressor' ? 'COMP' : g.title.toUpperCase()), sw, extra), row);
   });
   const grFill = sections[0].querySelector('.grbar span');
   const el = h('section', { class: 'mod fx', 'data-help': 'FX: Compressor, Delay und Reverb auf dem Master — Dry/Wet je Effekt.' }, h('header', { class: 'mh' }, h('span', { class: 'mtitle' }, 'FX')), sections);
   el.meter = (m) => { grFill.style.width = `${Math.min(100, (-m.gr / 24) * 100)}%`; };
-  el.refresh = () => rows.forEach((r) => r.refresh());
+  el.refreshSw = () => sws.forEach((s) => { const on = !!M()[s.fx].on; s.classList.toggle('on', on); s.closest('.fxrow').classList.toggle('off', !on); });
+  el.refresh = () => { rows.forEach((r) => r.refresh()); el.refreshSw(); };
   return el;
 }
 

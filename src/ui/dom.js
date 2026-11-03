@@ -97,5 +97,5 @@ export const CHILI_SVG = `<svg viewBox="0 0 64 64" aria-hidden="true"><defs><lin
 export const DICE = '<svg viewBox="0 0 20 20" class="dice" aria-hidden="true"><rect x="2.5" y="2.5" width="15" height="15" rx="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="6.6" cy="6.6" r="1.35" fill="currentColor"/><circle cx="13.4" cy="6.6" r="1.35" fill="currentColor"/><circle cx="10" cy="10" r="1.35" fill="currentColor"/><circle cx="6.6" cy="13.4" r="1.35" fill="currentColor"/><circle cx="13.4" cy="13.4" r="1.35" fill="currentColor"/></svg>';
 /** Würfel-Button: tag „1" (ein Preset für alle Steps) oder „ALL" (jeder Step eigener Zufallswert) */
 export function diceBtn(tag, help, fn, cls = '') {
-  return h('button', { class: `dbtn ${cls}`, 'data-help': help, onclick: fn }, h('span', { html: DICE }), tag ? h('b', {}, tag) : null);
+  return h('button', { class: `dbtn ${tag === '1' ? 'one ' : ''}${cls}`, 'data-help': help, onclick: fn }, h('span', { html: DICE }), tag ? h('b', {}, tag) : null);
 }

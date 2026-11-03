@@ -29,7 +29,9 @@ export function deckView(app) {
     h('div', { class: 'tgroup col' }, h('span', { class: 'tlabel' }, 'Zufall'),
       h('div', { class: 'tgroup' },
         diceBtn('1', 'Würfel 1 — jede Reihe bekommt ein zufälliges Preset, gleich auf allen Steps. Gates bleiben.', () => app.randomAll('one'), 'big'),
-        diceBtn('ALL', 'Würfel ALL — jeder Step jeder Reihe bekommt einen eigenen Zufallswert, inklusive Gates.', () => app.randomAll('all'), 'big hot'))),
+        diceBtn('ALL', 'Würfel ALL — jeder Step jeder Reihe bekommt einen eigenen Zufallswert, inklusive Gates.', () => app.randomAll('all'), 'big hot'),
+        h('button', { class: 'trip', 'data-help': 'TRIP — erzeugt eine psychedelische Sequenz: langsame Phaser-/Flanger-Bahnen, Bandleiern, Shimmer-Delay, große Räume, kreisende Stimmen, Filterformen im Loop, Granular-Wolken und sanften Chaos-Drift. Jeder Wurf ist anders, Strg/⌘+Z nimmt ihn zurück.', onclick: () => app.trip() },
+          h('span', { html: '<svg viewBox="0 0 20 20"><path d="M10 10m0 0a1.5 1.5 0 0 1 1.5 1.5a3 3 0 0 1-3 3a4.5 4.5 0 0 1-4.5-4.5a6 6 0 0 1 6-6a7.5 7.5 0 0 1 7.5 7.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>' }), 'TRIP'))),
     h('div', { class: 'tgroup col opt' }, h('span', { class: 'tlabel' }, 'Pattern'),
       h('div', { class: 'tgroup' },
         tool('◀', 'Ganzes Pattern einen Step nach links.', () => app.patternOp('left')),
@@ -39,7 +41,12 @@ export function deckView(app) {
         tool('↷', 'Wiederholen — Strg/⌘+Shift+Z.', () => app.redo()))));
   /* Makros */
   const M = () => app.project.macros;
-  const mk = MACRO_DEFS.map((d) => { const k = knob(d, () => M()[d.k], (v) => { M()[d.k] = v; app.commit(); }, { macro: true }); k.dataset.help = `${d.help} Doppelklick: neutral.`; return k; });
+  const mk = MACRO_DEFS.map((d) => { const k = knob(d, () => M()[d.k], (v) => {
+    M()[d.k] = v; const P = app.project;
+    // „vice versa": ein Makro, das ein ausgeschaltetes Modul braucht, schaltet es ein
+    if (d.k === 'chaos' && v > 0 && !P.chaos.on) { P.chaos.on = true; app.refreshPart('special'); }
+    if (d.k === 'space' && v > 0.5 && (!P.master.delay.on || !P.master.verb.on)) { P.master.delay.on = true; P.master.verb.on = true; app.refreshPart('master'); }
+    app.commit(); }, { macro: true }); k.dataset.help = `${d.help} Doppelklick: neutral.`; return k; });
   const macroReset = h('button', { class: 'tbtn', 'data-help': 'Alle Makros auf neutral.', onclick: () => { app.snapshot(); MACRO_DEFS.forEach((d) => (M()[d.k] = d.def)); app.commit(); mk.forEach((k) => k.update()); } }, '⟲');
   const macros = h('div', { class: 'macros' }, h('div', { class: 'mac-l' }, h('span', { class: 'tlabel' }, 'Makro'), macroReset), h('div', { class: 'mac-k' }, mk));
   transport.insertBefore(macros, transport.querySelector('.grow'));

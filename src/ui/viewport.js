@@ -54,21 +54,21 @@ export function viewportView(app) {
   cv.addEventListener('pointerdown', (e) => {
     const id = app.viewSample; if (!id) { fileIn.click(); return; }
     const r = cv.getBoundingClientRect(), W = r.width, x = e.clientX - r.left, y = e.clientY - r.top, f = toF(x, W), b = bounds();
-    let hit = -1; for (let i = 1; i < b.length - 1; i++) if (Math.abs(toX(b[i], W) - x) < 6) hit = i;
-    if (e.button === 2) { if (hit > 0) { app.snapshot(); b.splice(hit, 1); app.editMarkers(id, b); setManual(); } return; }
+    let hit = -1, hd = 7; for (let i = 0; i < b.length; i++) { const dd = Math.abs(toX(b[i], W) - x); if (dd < hd) { hd = dd; hit = i; } }
+    if (e.button === 2) { if (hit >= 0 && b.length > 2) { app.snapshot(); b.splice(hit, 1); app.editMarkers(id, b); setManual(); } return; }
     if (y < 15) { // Slice-Nummer: hinzoomen
       const own = app.project.slices.filter((s) => s.sampleId === id), s = own.find((q) => f >= q.a && f < q.b);
       if (s) { const pad = (s.b - s.a) * 0.08; view0 = s.a - pad; view1 = s.b + pad; clampView(); return; }
     }
     cv.setPointerCapture(e.pointerId);
-    if (hit > 0) { app.snapshot(); drag = { kind: 'marker', i: hit, b }; setManual(); }
+    if (hit >= 0) { app.snapshot(); drag = { kind: 'marker', i: hit, b }; setManual(); }
     else drag = { kind: 'pan', x0: x, v0: view0 };
   });
   cv.addEventListener('pointermove', (e) => {
     const r = cv.getBoundingClientRect(), W = r.width, x = e.clientX - r.left;
-    if (drag && drag.kind === 'marker') { const b = drag.b, f = toF(x, W); b[drag.i] = Math.min(b[drag.i + 1] - 0.002, Math.max(b[drag.i - 1] + 0.002, f)); app.editMarkers(app.viewSample, b); return; }
+    if (drag && drag.kind === 'marker') { const b = drag.b, f = toF(x, W); const lo = drag.i > 0 ? b[drag.i - 1] + 0.002 : 0, hi = drag.i < b.length - 1 ? b[drag.i + 1] - 0.002 : 1; b[drag.i] = Math.min(hi, Math.max(lo, f)); app.editMarkers(app.viewSample, b); return; }
     if (drag && drag.kind === 'pan') { const d = ((drag.x0 - x) / W) * span(); view0 = drag.v0 + d; view1 = view0 + span(); clampView(); return; }
-    const b = bounds(); let near = false; for (let i = 1; i < b.length - 1; i++) if (Math.abs(toX(b[i], W) - x) < 6) near = true;
+    const b = bounds(); let near = false; for (let i = 0; i < b.length; i++) if (Math.abs(toX(b[i], W) - x) < 7) near = true;
     cv.style.cursor = near ? 'ew-resize' : e.clientY - r.top < 15 ? 'zoom-in' : 'grab'; hoverX = x;
   });
   const end = (e) => { if (drag) { drag = null; try { cv.releasePointerCapture(e.pointerId); } catch {} } };
@@ -134,6 +134,7 @@ export function viewportView(app) {
       g.fillStyle = C.hud; g.globalAlpha = 0.5; g.fillRect(Math.round(x0), 0, 1, H); g.globalAlpha = 1;
       g.beginPath(); g.moveTo(x0, 0); g.lineTo(x0 + 5, 0); g.lineTo(x0, 6); g.closePath(); g.fill();
       if (x1 - x0 > 14) { g.fillStyle = i === app.hoverSlice ? C.acc : C.hud; g.font = '700 9px "JetBrains Mono", monospace'; g.fillText(String(i + 1), x0 + 3, 11); }
+      if (s === P.slices.filter((q) => q.sampleId === id).slice(-1)[0]) { g.fillStyle = C.hud; g.globalAlpha = 0.5; g.fillRect(Math.round(x1) - 1, 0, 1, H); g.globalAlpha = 1; g.beginPath(); g.moveTo(x1, 0); g.lineTo(x1 - 5, 0); g.lineTo(x1, 6); g.closePath(); g.fill(); }
       const u = used.get(i); if (u) { g.fillStyle = C.amber; for (let j = 0; j < Math.min(8, u); j++) g.fillRect(x0 + 3 + j * 4, H - 5, 2, 2); }
     });
     const mm = minmax(id, view0, view1, Math.floor(W));
