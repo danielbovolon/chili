@@ -31,7 +31,7 @@ export function knob(def, get, set, opt = {}) {
   const track = svg('path', { class: 'k-track', d: arc(14, A0, A1) }), val = svg('path', { class: 'k-val' }), dot = svg('line', { class: 'k-needle', x1: 20, y1: 20 });
   s.append(track, val, dot);
   const valEl = h('div', { class: 'k-value' }), lab = h('div', { class: 'k-label' }, def.l);
-  const el = h('div', { class: `knob${opt.small ? ' small' : ''}${opt.macro ? ' macro' : ''}`, tabindex: 0, 'data-help': `${def.l} — vertikal ziehen · Shift fein · Mausrad · Doppelklick Standardwert` }, lab, s, valEl);
+  const el = h('div', { class: `knob${opt.small ? ' small' : ''}${opt.macro ? ' macro' : ''}`, tabindex: 0, 'data-help': `${def.l} — drag vertically · Shift fine · mouse wheel · double-click default` }, lab, s, valEl);
   const maxFor = () => (def.dyn && opt.dynMax ? opt.dynMax() : def.max);
   const d = () => ({ ...def, max: Math.max(def.min + (def.int ? 1 : 1e-6), maxFor()) });
   const update = () => {

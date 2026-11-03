@@ -12,8 +12,8 @@ const visible = (c) => c.isConnected && c.offsetParent !== null;
 
 /* ================================================================ MONITOR */
 export function monitorView(app) {
-  const sc = h('canvas', { class: 'mon-cv', 'data-help': 'Oszilloskop des Master-Ausgangs: links rot, rechts cyan, getriggert.' });
-  const sp = h('canvas', { class: 'mon-cv', 'data-help': 'Spektrum des Master-Ausgangs, 20 Hz – 20 kHz, mit Peak-Hold.' });
+  const sc = h('canvas', { class: 'mon-cv', 'data-help': 'Oscilloscope of the master output: left red, right cyan, triggered.' });
+  const sp = h('canvas', { class: 'mon-cv', 'data-help': 'Spectrum of the master output, 20 Hz – 20 kHz, with peak hold.' });
   const el = h('section', { class: 'mod monitor' }, h('header', { class: 'mh' }, h('span', { class: 'mtitle' }, 'MONITOR')), h('div', { class: 'mon' }, sc, sp));
   const hold = new Float32Array(200).fill(-200);
   const trig = (b) => { for (let i = 1; i < b.length / 2; i++) if (b[i - 1] < 0 && b[i] >= 0) return i; return 0; };
@@ -50,14 +50,14 @@ export function monitorView(app) {
 /* ================================================================ SURROUND-PANNER */
 /* Feld: x = Pan (links/rechts), y = Tiefe (vorne oben → hinten unten). Jeder Step ist ein Punkt, direkt ziehbar. */
 const PRESETS = [
-  ['buehne', 'Bühne', 'Bühne: alle Steps vorne, von links nach rechts aufgereiht.'],
-  ['kreis', 'Kreis', 'Kreis: die Steps stehen gleichmäßig rund um den Hörer.'],
-  ['spirale', 'Spirale', 'Spirale: von der Mitte nach außen, zwei Umläufe.'],
-  ['orbit', 'Orbit', 'Orbit: jeder Step kreist mit eigener Geschwindigkeit um den Hörer.'],
-  ['schwarm', 'Schwarm', 'Schwarm: zufällig im Raum verteilt, mit Zufalls-Pan und leichtem Orbit.'],
+  ['buehne', 'Stage', 'Stage: all steps in front, lined up left to right.'],
+  ['kreis', 'Circle', 'Circle: the steps stand evenly around the listener.'],
+  ['spirale', 'Spiral', 'Spiral: from the centre outwards, two turns.'],
+  ['orbit', 'Orbit', 'Orbit: every step circles the listener at its own speed.'],
+  ['schwarm', 'Swarm', 'Swarm: scattered randomly in space, with random pan and a light orbit.'],
 ];
 export function surroundView(app) {
-  const cv = h('canvas', { class: 'sur-cv', 'data-help': 'Surround-Panner: jeder Punkt ist ein Step — ziehen setzt Pan (links/rechts) und Tiefe (vorne/hinten). Glühende Punkte sind die gerade klingenden Stimmen.' });
+  const cv = h('canvas', { class: 'sur-cv', 'data-help': 'Surround panner: every dot is a step — drag to set pan (left/right) and depth (front/back). Glowing dots are the voices sounding right now.' });
   const P = () => app.project;
   const apply = (id) => {
     app.snapshot(); const st = P().steps, L = P().transport.length;
@@ -73,7 +73,7 @@ export function surroundView(app) {
     app.commit('stack');
   };
   const btns = h('div', { class: 'sur-btns' }, PRESETS.map(([id, l, help]) => h('button', { class: 'btn', 'data-help': help, onclick: () => apply(id) }, l)),
-    h('button', { class: 'ibtn', 'data-help': 'Alle Steps in die Mitte, ohne Orbit.', onclick: () => { app.snapshot(); P().steps.forEach((s) => { s.pan = 0; s.depth = 0; s.orbit = 0; s.panRnd = 0; s.spread = 1; }); app.commit('stack'); } }, '⟲'));
+    h('button', { class: 'ibtn', 'data-help': 'All steps to the centre, no orbit.', onclick: () => { app.snapshot(); P().steps.forEach((s) => { s.pan = 0; s.depth = 0; s.orbit = 0; s.panRnd = 0; s.spread = 1; }); app.commit('stack'); } }, '⟲'));
   const el = h('section', { class: 'mod surround' }, h('header', { class: 'mh' }, h('span', { class: 'mtitle' }, 'SURROUND')), h('div', { class: 'sur' }, cv, btns));
   const trails = []; el.meter = (m) => { if (m.vz) { trails.push({ t: performance.now(), vz: m.vz }); if (trails.length > 16) trails.shift(); } };
   let geo = null, drag = -1;
@@ -126,7 +126,7 @@ export function surroundView(app) {
       const age = (now - tr.t) / 600; if (age > 1) return; const last = k === trails.length - 1;
       for (const v of tr.vz) { const [x, y] = toXY(v.x, v.y), a = Math.min(1, 0.2 + v.e) * (1 - age); g.fillStyle = `rgba(255,59,47,${a * (last ? 0.9 : 0.3)})`; g.beginPath(); g.arc(x, y, last ? 3 + v.e * 9 : 2, 0, Math.PI * 2); g.fill(); }
     });
-    g.textAlign = 'left'; g.fillStyle = dim; g.font = '600 8px "Chakra Petch", sans-serif'; g.fillText('VORNE', 4, 10); g.fillText('HINTEN', 4, H - 4);
+    g.textAlign = 'left'; g.fillStyle = dim; g.font = '600 8px "Chakra Petch", sans-serif'; g.fillText('FRONT', 4, 10); g.fillText('BACK', 4, H - 4);
   }
   requestAnimationFrame(draw);
   return el;
@@ -136,9 +136,9 @@ export function surroundView(app) {
 export function genvView(app, kind) {
   const E = () => app.project.genv[kind], defs = kind === 'amp' ? GENV_AMP : GENV_FLT;
   const title = kind === 'amp' ? 'AMP-ENV' : 'FILTER-ENV';
-  const help = kind === 'amp' ? 'Globale Amp-Hüllkurve: wirkt auf jeden Step. „Menge" blendet zwischen der Hüllkurve des Steps und dieser.' : 'Globale Filter-Hüllkurve: verschiebt den Cutoff jedes Steps um „Menge" Oktaven. Steps ohne eigenen Filter bekommen einen Lowpass.';
-  const sw = h('button', { class: 'switch', 'data-help': `${title} ein/aus.`, onclick: () => { E().on = !E().on; app.commit(); el.refresh(); } });
-  const cv = h('canvas', { class: 'env-cv', 'data-help': `${help} Der Punkt zeigt die Position der zuletzt angeschlagenen Stimme.` });
+  const help = kind === 'amp' ? 'Global amp envelope: acts on every step. “Amount” blends between the step’s own envelope and this one.' : 'Global filter envelope: moves every step’s cutoff by “Amount” octaves. Steps without their own filter get a lowpass.';
+  const sw = h('button', { class: 'switch', 'data-help': `${title} on/off.`, onclick: () => { E().on = !E().on; app.commit(); el.refresh(); } });
+  const cv = h('canvas', { class: 'env-cv', 'data-help': `${help} The dot shows the position of the most recently triggered voice.` });
   const ks = defs.map((d) => knob(d, () => E()[d.k], (v) => { E()[d.k] = v; if (!E().on) { E().on = true; sw.classList.add('on'); el.classList.remove('off'); } app.commit(); }, { small: true }));
   const el = h('section', { class: `mod genv ${kind}`, 'data-help': help }, h('header', { class: 'mh' }, h('span', { class: 'mtitle' }, title), sw), cv, h('div', { class: 'prow tight' }, ks));
   let live = null; el.meter = (m) => { live = m.ge; };

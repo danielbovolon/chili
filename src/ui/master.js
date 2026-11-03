@@ -6,24 +6,50 @@ const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v
 const posToDb = (p) => (p <= 0 ? -Infinity : 40 * Math.log10(p)); // Gain = Position²
 const dbToPos = (d) => Math.pow(10, d / 40);
 
-/* ================================================================ MASTER-EFFEKTE */
+/* ================================================================ FX CHAIN (Vital-style: drag modules to reorder) */
+const FX_NAMES = { filter: 'FILTER', delay: 'DELAY', verb: 'VERB', comp: 'COMP' };
 export function masterFxView(app) {
-  const M = () => app.project.master, rows = [];
-  const sws = [];
-  const sections = MASTER_GROUPS.map((g) => {
-    const sw = h('button', { class: 'switch', 'data-help': `${g.title} ein/aus. Aus = wirklich aus, auch wenn das Raum-Makro höher steht.`, onclick: () => { M()[g.id].on = !M()[g.id].on; app.commit(); el.refresh(); } });
-    sw.fx = g.id; sws.push(sw);
-    const row = paramRow(g.params, (k) => M()[g.id][k], (k, v) => { M()[g.id][k] = v; if (!M()[g.id].on && (k === 'mix' ? v > 0 : true)) { M()[g.id].on = true; } app.commit(); el.refreshSw(); }, { small: true });
-    rows.push(row);
-    const extra = g.id === 'comp' ? h('div', { class: 'grbar', 'data-help': 'Gain-Reduktion des Compressors.' }, h('span', {})) : null;
-    row.classList.add('tight');
-    return h('div', { class: `fxrow m-${g.id}` }, h('div', { class: 'fxl' }, h('span', {}, g.title === 'Compressor' ? 'COMP' : g.title.toUpperCase()), sw, extra), row);
-  });
-  const grFill = sections[0].querySelector('.grbar span');
-  const el = h('section', { class: 'mod fx', 'data-help': 'FX: Compressor, Delay und Reverb auf dem Master — Dry/Wet je Effekt.' }, h('header', { class: 'mh' }, h('span', { class: 'mtitle' }, 'FX')), sections);
+  const M = () => app.project.master;
+  const isOn = (id) => (id === 'filter' ? M().filter.on : M()[id].on);
+  const setOn = (id, v) => { if (id === 'filter') M().filter.on = v; else M()[id].on = v; };
+  const rows = {}, rowRefresh = [];
+  for (const g of MASTER_GROUPS) {
+    const row = paramRow(g.params, (k) => M()[g.id][k], (k, v) => { M()[g.id][k] = v; if (!M()[g.id].on && (k === 'mix' ? v > 0 : true)) M()[g.id].on = true; app.commit(); el.refreshChain(); }, { small: true });
+    row.classList.add('tight'); rowRefresh.push(row);
+    const extra = g.id === 'comp' ? h('div', { class: 'grbar', 'data-help': 'Compressor gain reduction.' }, h('span', {})) : null;
+    rows[g.id] = h('div', { class: `fxrow m-${g.id}` }, h('div', { class: 'fxl' }, h('span', {}, FX_NAMES[g.id]), extra), row);
+  }
+  const grFill = rows.comp.querySelector('.grbar span');
+  const chain = h('div', { class: 'chain', 'data-help': 'Master chain — drag a module to move it, click its LED to switch it on/off. Signal flows left to right.' });
+  const body = h('div', { class: 'fxbody' });
+  const el = h('section', { class: 'mod fx', 'data-help': 'FX — master effects. Order is free, like the FX chain in Vital.' }, h('header', { class: 'mh' }, h('span', { class: 'mtitle' }, 'FX CHAIN')), chain, body);
+  const move = (from, to) => {
+    const o = [...M().order]; if (to < 0 || to >= o.length || from === to) return;
+    const [x] = o.splice(from, 1); o.splice(to, 0, x); app.snapshot(); M().order = o; app.commit(); el.refreshChain();
+  };
+  let dragId = null;
+  el.refreshChain = () => {
+    const o = M().order; chain.innerHTML = '';
+    o.forEach((id, i) => {
+      const led = h('button', { class: `led${isOn(id) ? ' on' : ''}`, 'aria-label': `${FX_NAMES[id]} on/off`, onclick: (e) => { e.stopPropagation(); setOn(id, !isOn(id)); app.commit(); app.refreshPart('master'); } });
+      const chip = h('div', { class: `fxchip${isOn(id) ? ' on' : ''}`, draggable: 'true', 'data-id': id },
+        led, h('span', { class: 'nm' }, FX_NAMES[id]),
+        h('span', { class: 'mv' }, h('button', { 'aria-label': 'Move left', onclick: () => move(i, i - 1) }, '‹'), h('button', { 'aria-label': 'Move right', onclick: () => move(i, i + 1) }, '›')));
+      chip.addEventListener('dragstart', (e) => { dragId = id; chip.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', id); } catch {} });
+      chip.addEventListener('dragend', () => { dragId = null; chip.classList.remove('dragging'); chain.querySelectorAll('.fxchip').forEach((c) => c.classList.remove('over')); });
+      chip.addEventListener('dragover', (e) => { if (dragId && dragId !== id) { e.preventDefault(); chip.classList.add('over'); } });
+      chip.addEventListener('dragleave', () => chip.classList.remove('over'));
+      chip.addEventListener('drop', (e) => { e.preventDefault(); if (dragId) move(M().order.indexOf(dragId), M().order.indexOf(id)); });
+      chain.append(chip); if (i < o.length - 1) chain.append(h('i', { class: 'arrow' }, '→'));
+    });
+    body.innerHTML = '';
+    o.forEach((id, i) => {
+      if (id === 'filter') { body.append(h('div', { class: 'fxrow fxref' }, h('div', { class: 'fxl' }, h('span', {}, 'FILTER')), h('span', { class: 'hint' }, `slot ${i + 1} — controls in the FILTER module`))); return; }
+      rows[id].classList.toggle('off', !isOn(id)); body.append(rows[id]);
+    });
+  };
   el.meter = (m) => { grFill.style.width = `${Math.min(100, (-m.gr / 24) * 100)}%`; };
-  el.refreshSw = () => sws.forEach((s) => { const on = !!M()[s.fx].on; s.classList.toggle('on', on); s.closest('.fxrow').classList.toggle('off', !on); });
-  el.refresh = () => { rows.forEach((r) => r.refresh()); el.refreshSw(); };
+  el.refresh = () => { rowRefresh.forEach((r) => r.refresh()); el.refreshChain(); };
   return el;
 }
 
@@ -32,20 +58,20 @@ const D = Object.fromEntries(MF_DEFS.map((d) => [d.k, d]));
 export function filterView(app) {
   const F = () => app.project.master.filter;
   const set = (k, v) => { F()[k] = v; app.commit(); el.dirty = true; };
-  const sw = h('button', { class: 'switch', 'data-help': 'Master-Filter ein/aus (klickfrei überblendet).', onclick: () => { F().on = !F().on; app.commit(); el.refresh(); } });
-  const typeSel = h('select', { class: 'sel', 'data-help': 'Filtertyp: LP, BP, HP, Notch, Peak, Shelf, Comb ±, Formant.', onchange: (e) => { set('type', e.target.value); el.refresh(); } }, MF_TYPES.map(([v, l]) => h('option', { value: v }, l)));
-  const slope = h('div', { class: 'seg mini', 'data-help': 'Flankensteilheit (LP/BP/HP/Notch): 12 bis 48 dB pro Oktave.' }, [1, 2, 3, 4].map((n) => h('button', { 'data-n': n, onclick: () => { set('slope', n); el.refresh(); } }, `${n * 12}`)));
-  const cv = h('canvas', { class: 'resp', 'data-help': 'Frequenzgang des Master-Filters — die Kurve bewegt sich mit der Modulation (links rot, rechts cyan).' });
+  const sw = h('button', { class: 'switch', 'data-help': 'Master filter on/off (click-free crossfade).', onclick: () => { F().on = !F().on; app.commit(); el.refresh(); } });
+  const typeSel = h('select', { class: 'sel', 'data-help': 'Filter type: LP, BP, HP, notch, peak, shelf, comb ±, formant.', onchange: (e) => { set('type', e.target.value); el.refresh(); } }, MF_TYPES.map(([v, l]) => h('option', { value: v }, l)));
+  const slope = h('div', { class: 'seg mini', 'data-help': 'Slope (LP/BP/HP/notch): 12 to 48 dB per octave.' }, [1, 2, 3, 4].map((n) => h('button', { 'data-n': n, onclick: () => { set('slope', n); el.refresh(); } }, `${n * 12}`)));
+  const cv = h('canvas', { class: 'resp', 'data-help': 'Master filter response — the curve itself moves with the modulation (left red, right cyan).' });
   const k = (key, help) => { const c = knob(D[key], () => F()[key], (v) => set(key, v), { small: true }); if (help) c.dataset.help = help; return c; };
   const ctx = h('span', { class: 'ctxk' });
-  const lfoSync = h('select', { class: 'sel', 'data-help': 'LFO frei (Rate-Knopf) oder tempo-synchron.', onchange: (e) => { set('lfoSync', e.target.value); el.refresh(); } }, D.lfoSync.o.map(([v, l]) => h('option', { value: v }, l)));
-  const lfoShape = h('select', { class: 'sel', 'data-help': 'LFO-Form.', onchange: (e) => set('lfoShape', e.target.value) }, D.lfoShape.o.map(([v, l]) => h('option', { value: v }, l)));
+  const lfoSync = h('select', { class: 'sel', 'data-help': 'LFO free (Rate knob) or tempo-synced.', onchange: (e) => { set('lfoSync', e.target.value); el.refresh(); } }, D.lfoSync.o.map(([v, l]) => h('option', { value: v }, l)));
+  const lfoShape = h('select', { class: 'sel', 'data-help': 'LFO shape.', onchange: (e) => set('lfoShape', e.target.value) }, D.lfoShape.o.map(([v, l]) => h('option', { value: v }, l)));
   const lfoRate = k('lfoRate');
-  const el = h('section', { class: 'mod mfilter', 'data-help': 'Master-Filter vor den FX.' },
+  const el = h('section', { class: 'mod mfilter', 'data-help': 'Master filter — its position is set in the FX chain.' },
     h('header', { class: 'mh' }, h('span', { class: 'mtitle' }, 'FILTER'), typeSel, slope, sw),
     cv,
-    h('div', { class: 'prow tight' }, k('cutoff'), k('res'), k('drive', 'Drive vor dem Filter — ADAA-Sättigung, aliasarm.'), ctx, k('mix'), k('out')),
-    h('div', { class: 'prow tight' }, k('envAmt', 'Hüllkurvenfolger: der Eingangspegel verschiebt den Cutoff (± Oktaven).'), k('envAtk'), k('envRel'), k('stereo', 'Phasenversatz des LFO zwischen links und rechts (bis 180°).'), k('spreadOct', 'Fester Cutoff-Versatz zwischen links und rechts.')),
+    h('div', { class: 'prow tight' }, k('cutoff'), k('res'), k('drive', 'Drive before the filter — ADAA saturation, low aliasing.'), ctx, k('mix'), k('out')),
+    h('div', { class: 'prow tight' }, k('envAmt', 'Envelope follower: the input level moves the cutoff (± octaves).'), k('envAtk'), k('envRel'), k('stereo', 'LFO phase offset between left and right (up to 180°).'), k('spreadOct', 'Fixed cutoff offset between left and right.')),
     h('div', { class: 'prow tight lfo' }, h('span', { class: 'tlabel' }, 'LFO'), k('lfoDepth'), lfoRate, h('div', { class: 'lfosel' }, lfoSync, lfoShape)));
   const knobs = () => el.querySelectorAll('.knob, .field');
   el.refresh = () => {
@@ -57,7 +83,7 @@ export function filterView(app) {
     ctx.innerHTML = '';
     if (['peak', 'lshelf', 'hshelf'].includes(f.type)) ctx.append(k('gain'));
     if (!ctx.childNodes.length) ctx.append(h('span', { class: 'kph' }));
-    if (f.type === 'formant') ctx.append(k('vowel', 'Vokal-Morph A–E–I–O–U. Cutoff verschiebt die Formanten.'));
+    if (f.type === 'formant') ctx.append(k('vowel', 'Vowel morph A–E–I–O–U. Cutoff shifts the formants.'));
     lfoRate.style.display = f.lfoSync === 'off' ? '' : 'none';
     knobs().forEach((c) => c.update && c.update());
     el.dirty = true;
@@ -123,14 +149,14 @@ export function outView(app) {
   const fval = h('div', { class: 'f-val' });
   const meter = h('canvas', { class: 'meter' });
   const read = { pk: h('b', {}), lufs: h('b', {}), lim: h('b', {}), cpu: h('b', {}) };
-  const over = h('button', { class: 'over', 'data-help': 'OVER: Signal vor dem Limiter über 0 dBFS. Klick setzt zurück.', onclick: () => over.classList.remove('on') }, 'OVER');
-  const fader = h('div', { class: 'fader', tabindex: 0, 'data-help': 'Master-Fader — maximal 0 dB, klickfrei geglättet. Doppelklick: 0 dB · Shift: fein.' }, scale, track);
+  const over = h('button', { class: 'over', 'data-help': 'OVER: signal above 0 dBFS before the limiter. Click to reset.', onclick: () => over.classList.remove('on') }, 'OVER');
+  const fader = h('div', { class: 'fader', tabindex: 0, 'data-help': 'Master fader — max 0 dB, smoothed click-free. Double-click: 0 dB · Shift: fine.' }, scale, track);
   const el = h('aside', { class: 'out' },
     h('div', { class: 'out-t' }, 'MASTER'), over,
     h('div', { class: 'f-wrap' }, fader, meter), fval,
     h('div', { class: 'readouts' },
-      h('div', { 'data-help': 'Sample-Peak (Hold).' }, h('span', {}, 'PK'), read.pk), h('div', { 'data-help': 'Lautheit Momentary nach ITU-R BS.1770.' }, h('span', {}, 'LUFS'), read.lufs),
-      h('div', { 'data-help': 'Gain-Reduktion des Safety-Limiters.' }, h('span', {}, 'LIM'), read.lim), h('div', { 'data-help': 'DSP-Last und aktive Stimmen.' }, h('span', {}, 'DSP'), read.cpu)));
+      h('div', { 'data-help': 'Sample peak (hold).' }, h('span', {}, 'PK'), read.pk), h('div', { 'data-help': 'Momentary loudness per ITU-R BS.1770.' }, h('span', {}, 'LUFS'), read.lufs),
+      h('div', { 'data-help': 'Gain reduction of the safety limiter.' }, h('span', {}, 'LIM'), read.lim), h('div', { 'data-help': 'DSP load and active voices.' }, h('span', {}, 'DSP'), read.cpu)));
   const setPos = (p) => { M().fader = Math.min(1, Math.max(0, p)); app.commit(); upd(); };
   const upd = () => {
     const p = M().fader; thumb.style.bottom = `calc(${p * 100}% - 8px)`; track.firstChild.style.height = `${p * 100}%`;

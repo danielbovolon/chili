@@ -15,7 +15,7 @@ import { ripView } from './ui/special.js';
 import { masterFxView, filterView, outView } from './ui/master.js';
 import { projectsView, settingsView } from './ui/pages.js';
 
-const VERSION = '0.5.0';
+const VERSION = '0.6.0';
 export const APP_NAME = 'CHILI'; // Name an einer Stelle — für die Umbenennung
 const SETTINGS_KEY = 'chili.settings', LAST_KEY = 'chili.lastProject';
 const defaultSettings = () => ({ sampleRate: 'auto', latency: 'interactive', outputDevice: '', quality: '16', maxVoices: 16, limiter: true, ceiling: -0.3, panLaw: 'm3', refA: 440, noteFloor: 70, peakHold: 1.5, exportBits: '24', dither: true, inputDevice: '', inputCh: 'stereo', recAutoComp: true, recOffset: 0, autosave: 30 });
@@ -26,7 +26,7 @@ const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
 const app = {
   engine: new Engine(), storage,
   settings: { ...defaultSettings(), ...JSON.parse(lsGet(SETTINGS_KEY) || '{}') },
-  project: newProject('Erstes Feuer'),
+  project: newProject('First Fire'),
   hoverStep: -1, hoverSlice: -1, playStep: -1, flashes: [], undoStack: [], redoStack: [],
   buffers: new Map(), bytes: new Map(), peaks: new Map(), viewSample: null,
   page: 'seq', playing: false, recording: false, dirty: false, views: {},
@@ -98,7 +98,7 @@ app.trip = () => {
   p.transport.direction = pick(['fwd', 'pp', 'brown', 'fwd']);
   app.commit('transport', 'stack', 'master', 'special', 'source');
   app.views.chaos.refresh(); app.views.ampEnv.refresh(); app.views.fltEnv.refresh();
-  toast('TRIP — psychedelische Sequenz erzeugt');
+  toast('TRIP — psychedelic sequence generated');
 };
 app.patternOp = (op) => {
   const p = app.project, t = p.transport, L = t.length;
@@ -124,11 +124,11 @@ async function startAudio() {
     if (app.project.rip.brain) app.engine.setBrain(app.project.rip.brain);
     if (app.rec && app.rec.info) await app.enableInput();
     document.body.classList.add('audio-on'); setStatus(); app.refreshPart('source');
-  } catch (err) { console.error(err); toast(`Audio konnte nicht starten: ${err.message}`, true); throw err; }
+  } catch (err) { console.error(err); toast(`Audio could not start: ${err.message}`, true); throw err; }
 }
 async function decodeSample(id) {
   let bytes = app.bytes.get(id);
-  if (!bytes) { const rec = await storage.getSample(id); if (!rec) { toast('Sample fehlt in der Datenbank', true); return; } bytes = rec.bytes; app.bytes.set(id, bytes); }
+  if (!bytes) { const rec = await storage.getSample(id); if (!rec) { toast('Sample missing from the database', true); return; } bytes = rec.bytes; app.bytes.set(id, bytes); }
   if (!app.engine.running) return;
   const buf = await app.engine.decode(bytes);
   app.buffers.set(id, buf); app.peaks.set(id, peaks(buf)); app.engine.sendSample(id, buf);
@@ -146,9 +146,9 @@ app.importFiles = async (files, opt = {}) => {
       await decodeSample(id);
       first ||= id;
       if (app.buffers.get(id)) app.reslice(id, opt.mode || app.slicing.mode, opt.count || app.slicing.count, app.slicing.sens, files.length === 1 || first === id, true);
-    } catch (err) { console.error(err); toast(`„${f.name}" konnte nicht dekodiert werden`, true); }
+    } catch (err) { console.error(err); toast(`Could not decode “${f.name}”`, true); }
   }
-  if (first) { app.viewSample = first; app.commit('source', 'stack'); if (!opt.quiet) toast(`${files.length} Datei(en) importiert und gesliced`); }
+  if (first) { app.viewSample = first; app.commit('source', 'stack'); if (!opt.quiet) toast(`${files.length} file(s) imported and sliced`); }
 };
 /** Slicing wie Simpler/Sampler: mode = auto | trans | beat | region | manual; map = Zuordnung Slice → Step */
 app.slicing = { mode: 'auto', count: 'steps', grid: '1/16', sens: 0.5, map: 'seq' };
@@ -190,7 +190,7 @@ app.editMarkers = (id, bounds) => {
 };
 
 app.removeSample = (id) => {
-  if (!id || !confirm('Sample aus diesem Projekt entfernen?')) return;
+  if (!id || !confirm('Remove this sample from the project?')) return;
   const p = app.project, keep = p.slices.filter((s) => s.sampleId !== id), remap = new Map();
   p.slices.forEach((s, i) => remap.set(i, s.sampleId === id ? -1 : keep.indexOf(s)));
   p.slices = keep; p.samples = p.samples.filter((s) => s.id !== id);
@@ -212,7 +212,7 @@ app.toggleRec = async () => {
     app.recording = true; app.refreshPart('transportLite');
     const blob = await app.engine.startRec(Number(app.settings.exportBits), app.settings.dither);
     download(blob, `${safeName(app.project.name)}_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.wav`);
-    toast('Bounce gespeichert');
+    toast('Bounce saved');
   } else { app.recording = false; app.engine.stopRec(); app.refreshPart('transportLite'); }
 };
 
@@ -224,8 +224,8 @@ app.enableInput = async () => {
   try {
     app.rec.info = await app.engine.enableInput(app.settings.inputDevice);
     app.engine.setInput(app.settings.inputCh, app.rec.monitor);
-    toast(`Eingang: ${app.rec.info.label || 'Standard'} · ${app.rec.info.channels} Kanal/Kanäle`);
-  } catch (err) { console.error(err); app.rec.info = null; toast(err.name === 'NotAllowedError' ? 'Mikrofonzugriff wurde verweigert' : `Eingang nicht verfügbar: ${err.message}`, true); }
+    toast(`Input: ${app.rec.info.label || 'Default'} · ${app.rec.info.channels} channel(s)`);
+  } catch (err) { console.error(err); app.rec.info = null; toast(err.name === 'NotAllowedError' ? 'Microphone access was denied' : `Input not available: ${err.message}`, true); }
   app.refreshPart('recorder');
 };
 app.disableInput = () => { app.engine.disableInput(); app.rec.info = null; app.rec.monitor = false; app.engine.setInput(app.settings.inputCh, false); app.refreshPart('recorder'); };
@@ -252,15 +252,15 @@ app.startCapture = async () => {
   if (r.mode === 'sync' && !app.playing) await app.togglePlay();
   const res = await done;
   r.state = 'idle'; app.refreshPart('recorder');
-  if (!res) { toast('Aufnahme abgebrochen'); return; }
+  if (!res) { toast('Recording cancelled'); return; }
   r.count++;
-  const name = `${r.src === 'master' ? 'Resample' : 'Aufnahme'} ${r.count} · ${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`;
+  const name = `${r.src === 'master' ? 'Resample' : 'Recording'} ${r.count} · ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
   const blob = encodeWav(res.L, res.R, sr, 32, false); // verlustfrei: 32 Bit Float, kein Dither
   const L = app.project.transport.length;
   const opt = r.mode === 'sync' ? { mode: 'equal', count: String(Math.min(32, L * r.passes)), quiet: true } : { mode: 'trans', count: String(L), quiet: true };
   await app.importFiles([new File([blob], `${name}.wav`, { type: 'audio/wav' })], opt);
   const secs = res.L.reduce((a, c) => a + c.length, 0) / sr;
-  toast(`${name} — ${secs.toFixed(2)} s, ${r.mode === 'sync' ? 'auf die Steps gesliced' : 'nach Transienten gesliced'}`);
+  toast(`${name} — ${secs.toFixed(2)} s, ${r.mode === 'sync' ? 'sliced to the steps' : 'sliced at transients'}`);
 };
 app.engine.on('capState', (m) => {
   if (m.state === 'idle') return;
@@ -273,9 +273,9 @@ app.save = async () => {
     const brain = await app.engine.getBrain(); if (brain) app.project.rip.brain = brain;
     app.project.updated = Date.now();
     await storage.putProject(JSON.parse(JSON.stringify(app.project)));
-    lsSet(LAST_KEY, app.project.id); app.dirty = false; setStatus(); toast('Gespeichert');
+    lsSet(LAST_KEY, app.project.id); app.dirty = false; setStatus(); toast('Saved');
     if (app.page === 'projects') app.views.projects.refresh();
-  } catch (err) { console.error(err); toast(`Speichern fehlgeschlagen: ${err.message}`, true); }
+  } catch (err) { console.error(err); toast(`Saving failed: ${err.message}`, true); }
 };
 async function loadProject(p) {
   if (app.playing) await app.togglePlay();
@@ -292,17 +292,17 @@ async function loadProject(p) {
   lsSet(LAST_KEY, app.project.id); app.dirty = false; app.refreshAll(); setStatus();
 }
 app.openProject = async (id) => {
-  if (app.dirty && !confirm('Ungespeicherte Änderungen verwerfen?')) return;
+  if (app.dirty && !confirm('Discard unsaved changes?')) return;
   const p = await storage.getProject(id); if (!p) return;
-  await loadProject(p); go('seq'); toast(`„${p.name}" geladen`);
+  await loadProject(p); go('seq'); toast(`“${p.name}” loaded`);
 };
 app.newProject = async () => {
-  if (app.dirty && !confirm('Ungespeicherte Änderungen verwerfen?')) return;
-  await loadProject(newProject(`Projekt ${new Date().toLocaleDateString('de-DE')}`)); app.dirty = true; go('seq');
+  if (app.dirty && !confirm('Discard unsaved changes?')) return;
+  await loadProject(newProject(`Project ${new Date().toLocaleDateString('en-GB')}`)); app.dirty = true; go('seq');
 };
-app.duplicateProject = async (p) => { const c = { ...JSON.parse(JSON.stringify(p)), id: uid(), name: `${p.name} (Kopie)`, created: Date.now(), updated: Date.now() }; await storage.putProject(c); app.views.projects.refresh(); };
+app.duplicateProject = async (p) => { const c = { ...JSON.parse(JSON.stringify(p)), id: uid(), name: `${p.name} (copy)`, created: Date.now(), updated: Date.now() }; await storage.putProject(c); app.views.projects.refresh(); };
 app.exportProject = async (p) => { if (p.id === app.project.id && app.dirty) await app.save(); download(await storage.exportProject(p.id === app.project.id ? app.project : p), `${safeName(p.name)}.chili`); };
-app.importProject = async (file) => { try { const p = await storage.importProjectFile(file, uid()); toast(`„${p.name}" importiert`); app.views.projects.refresh(); } catch (err) { toast(err.message, true); } };
+app.importProject = async (file) => { try { const p = await storage.importProjectFile(file, uid()); toast(`“${p.name}” imported`); app.views.projects.refresh(); } catch (err) { toast(err.message, true); } };
 
 /* ------------------------------------------------------------------ Einstellungen */
 app.applySettings = async (draft) => {
@@ -312,8 +312,8 @@ app.applySettings = async (draft) => {
     const brain = await app.engine.getBrain(); if (brain) app.project.rip.brain = brain;
     const was = app.playing; if (was) await app.togglePlay();
     await startAudio(); if (was) await app.togglePlay();
-    toast('Engine neu gestartet');
-  } else { app.engine.settings(app.settings); app.pushState(); toast('Einstellungen übernommen'); }
+    toast('Engine restarted');
+  } else { app.engine.settings(app.settings); app.pushState(); toast('Settings applied'); }
   app.refreshPart('transport'); app.views.settings.refresh(); setupAutosave();
 };
 
@@ -331,19 +331,19 @@ const header = h('header', { class: 'topbar' });
 const status = h('span', { class: 'status' });
 function renderHeader() {
   header.innerHTML = '';
-  const name = h('input', { class: 'pname', value: app.project.name, spellcheck: false, 'data-help': 'Projektname.', onchange: (e) => { app.project.name = e.target.value || 'Ohne Titel'; app.commit(); }, onkeydown: (e) => { e.stopPropagation(); if (e.key === 'Enter') e.target.blur(); } });
+  const name = h('input', { class: 'pname', value: app.project.name, spellcheck: false, 'data-help': 'Project name.', onchange: (e) => { app.project.name = e.target.value || 'Untitled'; app.commit(); }, onkeydown: (e) => { e.stopPropagation(); if (e.key === 'Enter') e.target.blur(); } });
   header.append(
     h('div', { class: 'brand' }, h('span', { class: 'logo', html: CHILI_SVG }), h('span', { class: 'word' }, APP_NAME), h('span', { class: 'ver' }, VERSION)),
-    h('nav', { class: 'nav' }, [['seq', 'SEQ'], ['projects', 'PROJEKTE'], ['settings', 'SETUP']].map(([id, l]) => h('button', { class: app.page === id ? 'on' : '', onclick: () => go(id) }, l))),
+    h('nav', { class: 'nav' }, [['seq', 'SEQ'], ['projects', 'PROJECTS'], ['settings', 'SETUP']].map(([id, l]) => h('button', { class: app.page === id ? 'on' : '', onclick: () => go(id) }, l))),
     h('div', { class: 'hcenter' }, name),
-    h('div', { class: 'hright' }, status, h('button', { class: 'btn accent', 'data-help': 'Projekt speichern — Strg/⌘+S.', onclick: () => app.save() }, 'SAVE')));
+    h('div', { class: 'hright' }, status, h('button', { class: 'btn accent', 'data-help': 'Save project — Ctrl/⌘+S.', onclick: () => app.save() }, 'SAVE')));
   setStatus();
 }
 function setStatus() {
   const e = app.engine;
   status.innerHTML = '';
   status.append(h('i', { class: app.dirty ? 'dot dirty' : 'dot' }), e.running ? `${(e.sampleRate / 1000).toFixed(1)}K · ${(e.latency * 1000).toFixed(0)}MS` : 'OFFLINE');
-  status.title = app.dirty ? 'Ungespeicherte Änderungen' : 'Gespeichert';
+  status.title = app.dirty ? 'Unsaved changes' : 'Saved';
 }
 function go(page) {
   app.page = page; renderHeader();
@@ -363,26 +363,26 @@ V.projects = projectsView(app); V.settings = settingsView(app);
 app.toast = (m, e) => toast(m, e);
 
 const helpText = h('span', {});
-const DEFAULT_HELP = 'LEERTASTE Play · in jede Lane direkt zeichnen · SHIFT Linie · ALT fein · STRG/⌘ alle Steps · RECHTSKLICK Reset · STRG/⌘+Z zurück';
+const DEFAULT_HELP = 'SPACE play · draw straight into any lane · SHIFT line · ALT fine · CTRL/⌘ all steps · RIGHT-CLICK reset · CTRL/⌘+Z undo';
 helpText.textContent = DEFAULT_HELP;
 const helpbar = h('footer', { class: 'helpbar' }, h('b', {}, '?'), helpText);
 document.addEventListener('mouseover', (e) => { const t = e.target.closest && e.target.closest('[data-help]'); helpText.textContent = t ? t.dataset.help : DEFAULT_HELP; });
 
 // Rack: alle Module gleichzeitig sichtbar, keine Tabs
 const rack = h('div', { class: 'rack' },
-  h('div', { class: 'rcol' }, V.filter, V.fx, V.chaos, V.rip),
-  h('div', { class: 'rcol' }, V.monitor, V.surround, V.ampEnv, V.recorder));
-V.filter.append(V.fltEnv); // Filter-Hüllkurve gehört zum Filter
+  h('div', { class: 'rcol' }, V.ampEnv, V.filter, V.fx, V.chaos),
+  h('div', { class: 'rcol' }, V.monitor, V.surround, V.recorder, V.rip));
+V.filter.append(V.fltEnv); // the filter envelope belongs to the filter
 const seqPage = h('div', { class: 'body' }, h('div', { class: 'main' }, V.viewport, V.stack), rack, V.out);
 const pages = { seq: seqPage, projects: h('div', { class: 'body page-wrap' }, V.projects), settings: h('div', { class: 'body page-wrap' }, V.settings) };
-const mtabs = h('nav', { class: 'mtabs' }, [['seq', 'SEQ'], ['macro', 'MAKRO'], ['bay', 'RACK'], ['out', 'MASTER']].map(([id, l]) => h('button', { 'data-m': id, onclick: () => setMobile(id) }, l)));
+const mtabs = h('nav', { class: 'mtabs' }, [['seq', 'SEQ'], ['macro', 'MACRO'], ['bay', 'RACK'], ['out', 'MASTER']].map(([id, l]) => h('button', { 'data-m': id, onclick: () => setMobile(id) }, l)));
 function setMobile(id) { device.dataset.m = id; mtabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.m === id)); if (id === 'seq') V.stack.markDirty(); }
 const device = h('div', { class: 'device', 'data-m': 'seq' }, header, V.deck, pages.seq, pages.projects, pages.settings, helpbar, mtabs);
 
-/* Startseite: nur ein Knopf */
-const startBtn = h('button', { class: 'start-btn', 'aria-label': 'Audio starten' }, h('span', { class: 'moire' }), h('span', { class: 'core' }, h('i', {}, 'AUDIO'), h('b', {}, 'START')));
+/* Start page: one plain button */
+const startBtn = h('button', { class: 'start-btn' }, 'Start audio');
 const gate = h('div', { class: 'gate' }, startBtn);
-startBtn.addEventListener('click', () => { startBtn.disabled = true; gate.classList.add('lit'); ensureAudio().then(() => { setTimeout(() => gate.classList.add('out'), 250); setTimeout(() => gate.remove(), 800); }).catch(() => { startBtn.disabled = false; }); });
+startBtn.addEventListener('click', () => { startBtn.disabled = true; ensureAudio().then(() => { gate.classList.add('out'); setTimeout(() => gate.remove(), 350); }).catch(() => { startBtn.disabled = false; }); });
 root.append(device, gate, h('div', { class: 'toasts' }));
 setMobile('seq'); go('seq');
 
@@ -414,7 +414,7 @@ function download(blob, name) { const a = h('a', { href: URL.createObjectURL(blo
   try {
     const last = lsGet(LAST_KEY), p = last && (await storage.getProject(last));
     if (p) await loadProject(p); else app.refreshAll();
-  } catch (err) { console.warn('Kein gespeichertes Projekt geladen', err); app.refreshAll(); }
+  } catch (err) { console.warn('No saved project loaded', err); app.refreshAll(); }
   setupAutosave();
 })();
 window.chili = app; // Debug-Zugriff in der Konsole

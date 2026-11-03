@@ -1,168 +1,179 @@
-# 🌶 Chili — v0.5
+# 🌶 Chili — v0.6
 
-**Ein Step-Sequencer wie die Konsole eines Raumschiffs.** Importiertes Audio oder Synth, 4–32 Steps, jeder Parameter jedes Steps direkt zeichenbar, acht Makros, die Klang und Struktur der ganzen Sequenz umbauen, ein Zufallsmodulator für unendliche Komplexität — und drei eigene Systeme: **Mutate**, **Chaos**, **Rip**.
+**A step sequencer like a spaceship console.** Imported audio or synth, 4–32 steps, every parameter of every step drawn directly, eight macros that reshape the sound and structure of the whole sequence, a random modulator for endless complexity, scales from melodic to microtonal — and its own systems: **Mutate**, **Chaos**, **Rip**, **TRIP**.
 
-Der App-Name steht an einer einzigen Stelle (`APP_NAME` in `src/main.js`) — Umbenennen ist eine Zeile.
+The app name lives in one place (`APP_NAME` in `src/main.js`) — renaming is one line.
 
-Reines Web Audio. Die gesamte Klangerzeugung läuft sample-genau in einem einzigen `AudioWorklet`, ohne Fremdbibliotheken. Läuft auf Desktop und Phone.
+Pure Web Audio. All sound is generated sample-accurately in a single `AudioWorklet`, no third-party libraries. Runs on desktop and phone.
 
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm run build      # → dist/ (statisch, läuft auf jedem Webserver)
-npm test           # Headless-DSP-Tests
+npm run build      # → dist/ (static, runs on any web server)
+npm test           # headless DSP tests
 ```
-Browser: Chrome/Edge empfohlen. `file://` geht nicht (AudioWorklet braucht http/https).
+Browser: Chrome/Edge recommended. `file://` does not work (AudioWorklet needs http/https).
 
 ---
 
-## Aufbau der Konsole (kompakt, alles auf einen Blick)
+## What's new in v0.6
+- **Whole app in English.**
+- **Start page:** one plain "Start audio" button, no animation.
+- **FX chain (Vital-style):** Filter, Delay, Reverb and Comp are modules in a chain. Drag a chip to move it (or use ‹ › — on touch screens they are always visible, with a mouse they appear on hover), click its LED to switch it on/off. The rows below follow the chain order. Default: **Filter → Delay → Reverb → Comp** (compressor after the delay and reverb).
+- **Scale:** root + 24 scales, from melodic to experimental — Chromatic, Major, Minor, Dorian, Phrygian, Lydian, Mixolydian, Locrian, Harmonic/Melodic Minor, Major/Minor Pentatonic, Blues, Whole Tone, Diminished, Phrygian Dominant, Double Harmonic, Hungarian Minor, Hirajoshi, In Sen, Pelog, Enigmatic, Prometheus and **Quarter-tone (24-TET)**. Like Ableton's "Use Current Scale": every pitch — drawn, rolled, TRIP, chaos, warp, macro — is snapped when the step plays. **Degree** transposes the whole sequence in scale steps (±14), staying in key.
+- **Roll for all rows** moved into the sequencer bar ("All rows" 🎲 1 / 🎲 ALL), next to the pattern tools (shift, double, undo/redo).
+- **Fix:** 🎲 ALL for all rows left every lane flat — it now gives every step of every row its own value.
+- **Rack:** AMP-ENV moved out of the monitor column; it now sits above the FILTER (with its FILTER-ENV).
 
-| Bereich | Inhalt |
+## Console layout (compact, everything visible)
+
+| Area | Contents |
 |---|---|
-| **Deck** (eine Zeile) | Play · Bounce · Tempo-LCD (BPM / Hz / Note) · Steps · Raster · Laufrichtung · Swing · 8 Makros · globale Würfel · Pattern · Undo |
-| **Sample** | kompakte Wellenform mit Zoom, Übersicht, Slices, Live-Abspielköpfen · Slice-Modi · **⟁ Peaks** |
-| **Layer-Stack** | 15 Layer, jeder Parameter eine Lane über alle Steps |
-| **Rack** (ohne Tabs, alles sichtbar) | links: FILTER (mit FILTER-ENV) · FX · CHAOS · RIP — rechts: MONITOR (Oszilloskop + Spektrum) · SURROUND · AMP-ENV · REC |
-| **MASTER** | Fader (max. 0 dB), LED-Meter, Peak, LUFS, Limiter, DSP |
+| **Deck** (one row) | Play · Bounce · tempo LCD (BPM / Hz / Note) · Steps · Grid · Direction · Swing · Scale + Degree · 8 macros · TRIP |
+| **Sample** | compact waveform with zoom, overview, slices, live playheads · slice modes · **⟁ Peaks** |
+| **Layer stack** | 15 layers, every parameter a lane across all steps · pattern tools · "All rows" dice |
+| **Rack** (no tabs) | left: AMP-ENV · FILTER (with FILTER-ENV) · FX CHAIN · CHAOS — right: MONITOR (scope + spectrum) · SURROUND · REC · RIP |
+| **MASTER** | fader (max 0 dB), LED meter, peak, LUFS, limiter, DSP |
 
-Bei 1920×1080 passt das ganze Rack ohne Scrollen; auf kleineren Bildschirmen scrollt jede Rack-Spalte für sich. Auf dem Phone teilt eine Tab-Leiste die Konsole in **SEQ · MAKRO · RACK · MASTER**.
-Knobs im Ableton-Stil: Name oben, Bogen mit Zeiger, Wert unten — ziehen, Shift fein, Mausrad, Doppelklick = Standardwert.
+At 1920×1080 the whole rack fits without scrolling; on smaller screens each rack column scrolls on its own. On a phone a tab bar splits the console into **SEQ · MACRO · RACK · MASTER**.
+Ableton-style knobs: name on top, arc with needle, value below — drag, Shift = fine, mouse wheel, double-click = default.
 
-### Sample navigieren
-Mausrad zoomt um den Cursor · Shift+Rad oder horizontal wischen verschiebt · Ziehen auf freier Fläche verschiebt · Klick auf eine Slice-Nummer zoomt auf den Slice · **− + ⤢** · Übersichtsleiste darunter: Fenster ziehen, Doppelklick = alles.
-Marker ziehen ändert Slice-Grenzen — auch Anfang des ersten und Ende des letzten Slices —, Doppelklick setzt einen Marker, Rechtsklick entfernt ihn.
+### Navigating the sample
+Wheel zooms around the cursor · Shift+wheel or horizontal swipe scrolls · dragging empty space scrolls · clicking a slice number zooms to that slice · **− + ⤢** · overview bar below: drag the window, double-click = all.
+Dragging a marker moves a slice boundary — including the start of the first and the end of the last slice. Double-click adds a marker, right-click removes it.
 
-### ⟁ Peaks finden
-Sucht die stärksten Einschwingvorgänge im ganzen Sample (logarithmischer Energiefluss, Mindestabstand 45 ms), schneidet kurz vor jedem Peak auf dem nächsten Nulldurchgang und legt einen Peak auf jeden Step.
+### ⟁ Find peaks
+Finds the strongest transients in the whole sample (log energy flux, min. spacing 45 ms), cuts just before each peak at the next zero crossing and puts one peak on each step.
 
 ### Granular
-Jeder Sample-Step kann granular spielen (Layer „Granular"): Korngröße 5–500 ms, Kornrate 1–200/s, Position, Streuung, Scan (Lesegeschwindigkeit, 0 = Freeze, negativ = rückwärts), Pitch-Streuung bis ±24 st, Stereobreite. Körner mit Hann-Fenster; bei Pitch-Up mit Sinc-Anti-Aliasing gelesen. Presets: Wolke, Freeze, Stotter, Shimmer, Rückwärts-Nebel.
+Every sample step can play granular (layer "Granular"): grain size 5–500 ms, grain rate 1–200/s, position, spray, scan (read speed, 0 = freeze, negative = backwards), pitch spread up to ±24 st, stereo width. Hann-windowed grains, read with sinc anti-aliasing when pitched up. Presets: Cloud, Freeze, Stutter, Shimmer, Reverse Haze.
 
-### Globale Hüllkurven
-- **AMP-ENV** wirkt auf jeden Step; „Menge" blendet zwischen der Hüllkurve des Steps und der globalen.
-- **FILTER-ENV** verschiebt den Cutoff jedes Steps um ±8 Oktaven; Steps ohne eigenen Filter bekommen dafür einen Lowpass.
-- Beide zeigen live, wo die zuletzt angeschlagene Stimme gerade auf der Kurve steht.
+### Global envelopes
+- **AMP-ENV** acts on every step; "Amount" blends between the step's own envelope and the global one.
+- **FILTER-ENV** moves every step's cutoff by ±8 octaves; steps without their own filter get a lowpass for it.
+- Both show live where the most recently triggered voice is on the curve.
 
-### Surround-Panner
-Kreisfeld mit Hörer und 5.1-Lautsprechern. Jeder Step ist ein Punkt — direkt ziehen setzt Pan und Tiefe. Orbit-Bahnen werden gezeigt, klingende Stimmen leuchten.
-**5 Presets:** Bühne · Kreis · Spirale · Orbit · Schwarm (dazu ⟲ Mitte).
+### Surround panner
+Circular field with listener and 5.1 speakers. Every step is a dot — drag it to set pan and depth. Orbit paths are drawn, sounding voices glow.
+**5 presets:** Stage · Circle · Spiral · Orbit · Swarm (plus ⟲ centre).
 
-### Master-Filter
-Der Frequenzgang bewegt sich selbst mit der Modulation (Hüllkurvenfolger, LFO) — links rot, rechts cyan.
+## 🌀 TRIP — psychedelic sequences
+One click builds a psychedelic sequence: slow phaser and flanger sweeps per step, tape wobble (Mutate warp), shimmer delay with wow, big spaces, voices orbiting in surround, looping filter shapes, granular clouds, gentle chaos drift, master filter with a slow stereo LFO. Every roll is different; Ctrl/⌘+Z takes it back. With a scale set, TRIP stays in key.
+**Master delay:** **Wow** (tape modulation of the delay time) and **Shimmer** (±12 semitone pitch shift in the feedback — every repeat an octave higher).
 
-## 🌀 TRIP — psychedelische Sequenzen
-Ein Klick baut eine psychedelische Sequenz: langsame Phaser- und Flanger-Bahnen pro Step, Bandleiern (Mutate-Warp), Shimmer-Delay mit Wow, große Räume, kreisende Stimmen im Surround, Filterformen im Loop, Granular-Wolken, sanfter Chaos-Drift, Master-Filter mit langsamem Stereo-LFO. Jeder Wurf ist anders; Strg/⌘+Z nimmt ihn zurück.
-**Master-Delay** dafür neu: **Wow** (Band-Modulation der Delayzeit) und **Shimmer** (±12 Halbtöne Pitch-Shift im Feedback — jede Wiederholung eine Oktave höher).
+## On = on, off = off
+Every switch shows what really happens: Chaos off is off even with the Chaos macro up; Comp/Delay/Reverb have their own switches — off is off even with the Space macro up. The other way round, turning a mix knob above 0 switches its module on, the Chaos macro switches Chaos on, and the Space macro above centre switches master delay and reverb on. A test checks bit-exactly that switched-off modules don't touch the signal.
 
-## Ein = ein, aus = aus
-Jeder Schalter zeigt, was wirklich passiert: Chaos aus ist aus, auch wenn das Chaos-Makro hochsteht; Comp/Delay/Reverb haben eigene Schalter — aus ist aus, auch wenn das Raum-Makro höher steht. Umgekehrt schaltet ein Mix-Knopf über 0 sein Modul ein, das Chaos-Makro schaltet Chaos ein, das Raum-Makro über der Mitte schaltet Master-Delay und -Hall ein. Ein Test prüft bit-genau, dass ausgeschaltete Module nichts am Signal ändern.
+## Simple to extremely complex
+- **Simple:** drop a sample → it's sliced and laid onto the steps automatically → Play.
+- **Quick:** turn macros, roll dice, change direction, pick a scale.
+- **Deep:** draw every lane of every layer by hand, ratchets per step, chaos on individual rows.
+- **Infinite:** Chaos ∞ — every parameter of every step changes on every trigger.
 
-## Einfach bis extrem komplex
-- **Einfach:** Sample reinziehen → wird automatisch gesliced und auf die Steps gelegt → Play.
-- **Schnell:** Makros drehen, Würfel werfen, Laufrichtung wechseln.
-- **Tief:** jede Lane jedes Layers per Hand zeichnen, Ratchets pro Step, Chaos-Modulator auf einzelne Reihen.
-- **Unendlich:** Chaos ∞ — jeder Parameter jedes Steps ändert sich bei jeder Auslösung.
-
-### Makros (neutral = keine Wirkung)
-| Makro | Wirkung |
+### Macros (neutral = no effect)
+| Macro | Effect |
 |---|---|
-| **Heat** | Sättigung des Sequencer-Busses (tanh mit ADAA, aliasarm), mehr Resonanz und Filter-Hub |
-| **Dichte** | links: Pattern dünnt aus · rechts: Ghost-Notes auf leeren Steps und eingestreute Ratchets |
-| **Warp** | Mikro-Timing, Pitch-Drift, Startpunkt-Jitter, Längen-Variation, gelegentlich rückwärts |
-| **Ton** | alle Filter-Cutoffs ±3 Oktaven |
-| **Pitch** | Transponieren ±24 Halbtöne |
-| **Länge** | alle Notenlängen ×0.1 … ×4 (Staccato bis Drone) |
-| **Raum** | links trocken · rechts mehr Master-Delay/-Hall, Spread und Surround-Orbit |
-| **Chaos** | Gesamttiefe des Zufallsmodulators |
+| **Heat** | saturation of the sequencer bus (tanh with ADAA, low aliasing), more resonance and filter sweep |
+| **Density** | left: the pattern thins out · right: ghost notes on empty steps and sprinkled ratchets |
+| **Warp** | micro-timing, pitch drift, start jitter, length variation, sometimes reversed |
+| **Tone** | all filter cutoffs ±3 octaves |
+| **Pitch** | transpose ±24 semitones (snapped to the scale when one is set) |
+| **Length** | all note lengths ×0.1 … ×4 (staccato to drone) |
+| **Space** | left dry · right more master delay/reverb, spread and surround orbit |
+| **Chaos** | overall depth of the random modulator |
 
-### Würfel 🎲
-- **Pro Reihe:** 🎲 **1** = ein zufälliges Preset (kuratiert oder generiert), gleich auf allen Steps · 🎲 **ALL** = jeder Step bekommt einen eigenen Zufallswert.
-- **Global (Deck):** 🎲 **1** = jede Reihe ein zufälliges Preset · 🎲 **ALL** = jeder Step jeder Reihe zufällig, inklusive Gates.
-- **Pro Lane:** 🎲 würfelt nur diese Lane.
+### Dice 🎲
+- **Per row:** 🎲 **1** = one random preset (curated or generated), the same on all steps · 🎲 **ALL** = every step gets its own random value.
+- **All rows (sequencer bar):** 🎲 **1** = every row one random preset (gates stay) · 🎲 **ALL** = every step of every row random, gates included. "Roll 1" is flat across steps by design — it's one preset per row; "ALL" is the one that varies per step.
+- **Per lane:** 🎲 rolls only that lane.
 
-### Chaos — Zufallsmodulator (angelehnt an VCV Random)
-Pro Ziel-Parameter ein eigener Zufallskanal, getaktet in Steps.
-**Tiefe** · **Rate** (neuer Wert alle n Steps) · **Chance** (überhaupt neu würfeln) · **Zufall** (Sprungweite vom vorigen Wert) · **Form** (Stufe → Linear → Glatt → Exponentiell, stufenlos) · **Lock** + **Loop** (Phrasen wiederholen wie eine Turing Machine) · **Relativ/Absolut** · **Seed** · **Ziele** (jede Reihe einzeln, dazu Gates).
-„∞ Unendlich" schaltet alles auf Maximum.
+### Chaos — random modulator (after VCV Random)
+One random channel per target parameter, clocked in steps.
+**Depth** · **Rate** (new value every n steps) · **Chance** (roll at all) · **Random** (jump size from the previous value) · **Shape** (step → linear → smooth → exponential, continuous) · **Lock** + **Loop** (repeat phrases like a Turing Machine) · **Relative/Absolute** · **Seed** · **Targets** (each row separately, plus gates).
+"∞ Infinite" sets everything to maximum.
 
-### Master-Filter
-LP · BP · HP · Notch (12/24/36/48 dB/Okt, Butterworth-Stufen, Resonanz in der letzten Stufe) · Peak · Low-/High-Shelf · Comb ± · Formant (Vokal-Morph A–E–I–O–U).
-Drive vor dem Filter (ADAA) · Hüllkurvenfolger (Menge, Attack, Release) · LFO (frei oder tempo-synchron, 6 Formen) · Stereo-Phase · L/R-Versatz · Mix · Ausgang. Der Frequenzgang wird live gezeichnet, inklusive der modulierten Cutoff-Position links/rechts.
+### Master filter
+LP · BP · HP · Notch (12/24/36/48 dB/oct, Butterworth stages, resonance in the last stage) · Peak · Low/High shelf · Comb ± · Formant (vowel morph A–E–I–O–U).
+Drive before the filter (ADAA) · envelope follower (amount, attack, release) · LFO (free or tempo-synced, 6 shapes) · stereo phase · L/R offset · mix · output. The response curve itself moves with the modulation — left red, right cyan. Its position in the master signal path is set in the FX chain.
 
-### Surround & Spread pro Step (Layer „Raum")
-Pro Step: **Pan** (links/rechts), **Tiefe** (vorne → hinten), **Orbit** (kreist um den Hörer, eigene Rate), **Spread** (Stereobreite 0–200 %; beim Synth trennt Spread die beiden Oszillatoren). Dazu Zufalls-Pan, Pan-Modulation und Autopan.
-Die Ausgabe ist Stereo: „hinten" wird psychoakustisch erzeugt (Höhendämpfung wie durch Kopf und Ohrmuschel, leiser, breiter).
+### Surround & spread per step (layer "Space")
+Per step: **Pan** (left/right), **Depth** (front → back), **Orbit** (circles the listener at its own rate), **Spread** (stereo width 0–200 %; on the synth spread separates the two oscillators). Plus random pan, pan modulation and autopan.
+Output is stereo: "behind" is psychoacoustic (high-frequency damping as by head and pinna, quieter, wider).
 
-### Ratchets & Laufrichtung
-- **Ratchet** 1–8 Wiederholungen pro Step, **Ratchet-Dynamik** (anschwellend/abfallend).
-- **Laufrichtung:** vorwärts · rückwärts · Ping-Pong · Zufall · Brown · Sprung.
+### Ratchets & direction
+- **Ratchet** 1–8 repeats per step, **Ratchet Dyn** (swelling/falling).
+- **Direction:** forward · reverse · ping-pong · random · brown · skip.
 
-### Slicing wie Simpler/Sampler
-**Auto** (Transienten, sonst Beat-Raster) · **Transienten** (mit Empfindlichkeit) · **Beat** (Raster 1/2–1/32 beim Projekttempo) · **Region** (gleiche Teile) · **Manuell**: Marker im Viewport ziehen, Doppelklick setzt einen neuen, Rechtsklick entfernt ihn.
-**Zuordnung** Slice → Step: 1 2 3 … · rückwärts · Ping-Pong · Zufall · nur Slice 1.
+### Slicing like Simpler/Sampler
+**Auto** (transients, otherwise beat grid) · **Transient** (with sensitivity) · **Beat** (grid 1/2–1/32 at the project tempo) · **Region** (equal parts) · **Manual**: drag markers in the viewport, double-click adds one, right-click removes it.
+**Slice → step mapping:** 1 2 3 … · reverse · ping-pong · random · only 1.
 
-### Layer-System
-Sequenz (Pegel, Chance, Länge, Ratchet, Quelle, Rip-Gewicht) · Sample · Synth · Hüllkurve · Filter · Raum · Tremolo · Pitch-Mod · Phaser · Flanger · Chorus · Delay · Reverb · Mutate.
-Layer ein-/ausblenden über die Leiste, Bypass ⏻ pro Layer, auf-/zuklappen für alle Lanes.
+### Layer system
+Sequence (level, chance, length, ratchet, source, rip weight) · Sample · Granular · Synth · Envelope · Filter · Space · Tremolo · Pitch-Mod · Phaser · Flanger · Chorus · Delay · Reverb · Mutate.
+Show/hide layers in the bar, bypass ⏻ per layer, expand/collapse for all lanes.
 
-| Geste in einer Lane | Wirkung |
+| Gesture in a lane | Effect |
 |---|---|
-| Ziehen | zeichnen, über beliebig viele Steps |
-| Shift + Ziehen | gerade Linie / Rampe |
-| Alt + Ziehen | fein und relativ |
-| Strg/⌘ + Ziehen | alle Steps gleichzeitig |
-| Rechtsklick / Doppelklick | Standardwert |
-| Alt + Mausrad | einzelnen Step fein |
-| Step-Nummer | vorhören |
+| Drag | draw, across any number of steps |
+| Shift + drag | straight line / ramp |
+| Alt + drag | fine and relative |
+| Ctrl/⌘ + drag | all steps at once |
+| Right-click / double-click | default value |
+| Alt + wheel | single step, fine |
+| Step number | preview |
 
 ### Mutate · Rip
-- **Mutate:** Der Attack bleibt bei jeder Auslösung identisch, danach moduliert Mutate Pitch, Filter, Raum, Warp und Pegel jedes Mal neu.
-- **Rip:** Beat-Repeat, gesteuert von einem rekurrenten neuronalen Netz, das aus jeder Wiederholung lernt. Das Gehirn wird mit dem Projekt gespeichert.
+- **Mutate:** the attack stays identical on every trigger; after it, Mutate re-modulates pitch, filter, space, warp and level each time.
+- **Rip:** beat repeat driven by a recurrent neural network that learns from every repeat. The brain is saved with the project.
 
-### Aufnahme, Projekte, Einstellungen
-- **REC:** Eingang oder Master direkt als Sample, Sync auf Step 1 mit Count-in und Latenzausgleich, sample-genau.
-- **Bounce:** Master als WAV (16/24 Bit mit TPDF-Dither oder 32 Bit Float).
-- Projekte lokal in IndexedDB inklusive Original-Audio; Export/Import als `.chili`.
-- Einstellungen: Samplerate bis 96 kHz, Latenz, Ausgabegerät, Resampling-Qualität, Voices, Pan-Law, Limiter/Ceiling, Kammerton, Autosave …
+### Recording, projects, settings
+- **REC:** input or master straight into a sample, synced to step 1 with count-in and latency compensation, sample-accurate.
+- **Bounce:** master to WAV (16/24-bit with TPDF dither or 32-bit float).
+- Projects stored locally in IndexedDB including the original audio; export/import as `.chili`.
+- Settings: sample rate up to 96 kHz, latency, output device, resampling quality, voices, pan law, limiter/ceiling, reference pitch, autosave …
 
 ---
 
-## Klangqualität — gemessen (`npm test`, 48 kHz)
+## Sound quality — measured (`npm test`, 48 kHz)
 
-| Test | Ergebnis |
+| Test | Result |
 |---|---|
-| Synth-Sägezahn C8: stärkste Nicht-Harmonische | −99 dB |
-| Sampler +12 st auf 15-kHz-Sinus, Alias-Rest (Qualität Hoch) | −115 dB |
-| Sampler unverändert, alle neuen Funktionen neutral | bit-genau |
-| Heat-Sättigung, 5-kHz-Sinus, +24 dB Drive: Aliasing naiv → ADAA | −47 dB → −71 dB |
-| Master-Filter LP 48 dB/Okt bei 1 kHz: 2 kHz | −48.5 dB |
-| Master-Filter: 10 Typen, Resonanz 1, Drive 36 dB, LFO/Env voll | stabil, kein NaN |
-| Chaos 100 % auf 76 Parametern + alle Makros + Ratchets | stabil, Peak ≤ −0.3 dBFS |
-| Ratchet 4 | exakt 4 Anschläge pro Step |
-| Globale Amp-Hüllkurve (Decay 40 ms, Sustain 0) | nach 0.4 s Stille (−240 dB) |
-| Globale Filter-Hüllkurve −8 Okt auf Step ohne Filter | 20. Oberton −59 → −126 dB |
-| Granular: 12 Stimmen × 200 Körner/s, ±24 st | stabil, 13 % Echtzeit |
-| Chaos aus + FX aus bei Makro/Mix 100 % | bit-genau wie ohne |
-| Sync-Aufnahme mit Count-in + Latenzausgleich | sample-genau |
+| Synth saw C8: strongest non-harmonic | −99 dB |
+| Sampler +12 st on a 15 kHz sine, alias residue (quality High) | −115 dB |
+| Sampler unchanged, all new features neutral | bit-exact |
+| Heat saturation, 5 kHz sine, +24 dB drive: aliasing naive → ADAA | −47 dB → −71 dB |
+| Master filter LP 48 dB/oct at 1 kHz: level at 2 kHz | −48.5 dB |
+| Master filter: 10 types, resonance 1, drive 36 dB, LFO/env full | stable, no NaN |
+| Chaos 100 % on 76 parameters + all macros + ratchets | stable, peak ≤ −0.3 dBFS |
+| Ratchet 4 | exactly 4 hits per step |
+| Global amp envelope (decay 40 ms, sustain 0) | silence after 0.4 s (−240 dB) |
+| Global filter envelope −8 oct on a step without filter | 20th harmonic −59 → −126 dB |
+| Granular: 12 voices × 200 grains/s, ±24 st | stable, ~15 % real-time |
+| Chaos off + FX off with macro/mix at 100 % | bit-exact to the dry signal |
+| FX chain: all 24 orders | stable; comp first vs. last changes the sound |
+| Scale: 32 notes with chaos + warp in D minor pentatonic | all in key |
+| Synced recording with count-in + latency compensation | sample-accurate |
 
-**CPU-Schutz:** Bei Dauerlast über 85 % blendet die Engine die ältesten Ausklänge (Delay-/Hall-Tails) in 6 ms aus, statt Dropouts zu riskieren.
+**CPU guard:** under sustained load above 85 % the engine fades the oldest tails (delay/reverb) in 6 ms instead of risking dropouts.
 
-## Struktur
+## Structure
 ```
 src/
-  main.js                 App-Controller, Layout, Undo, Würfel global
-  styles.css              Raumschiff-Konsole, Desktop + Phone
-  audio/  chili-processor.js (gesamte DSP) · engine.js · slicer.js · wav.js
-  state/  params.js · layers.js (Layer, Presets) · project.js · storage.js
-  ui/     deck.js · viewport.js (Sample-Leiste) · lanes.js · rack.js (Monitor, Surround, Hüllkurven)
-          master.js (FX, Filter, Master) · chaos.js · special.js (Rip) · recorder.js · pages.js · dom.js
+  main.js                 app controller, layout, undo, global dice
+  styles.css              spaceship console, desktop + phone
+  audio/  chili-processor.js (all DSP) · engine.js · slicer.js · wav.js
+  state/  params.js (params, scales) · layers.js (layers, presets) · project.js · storage.js
+  ui/     deck.js (transport, scale, macros, TRIP) · viewport.js (sample bar) · lanes.js (layer stack)
+          rack.js (monitor, surround, envelopes) · master.js (FX chain, filter, master) · chaos.js
+          special.js (Rip) · recorder.js · pages.js · dom.js
 tests/dsp.test.mjs
 docs/DSP.md
 ```
 
-## Grenzen von v0.3
-- Surround wird als Stereo gerendert (psychoakustisch); echte Mehrkanal-Ausgabe (Quad/5.1/7.1) ist der nächste Schritt.
-- Step-Parameter wirken ab der nächsten Auslösung; Makros, Master und Bypass ab dem nächsten Step.
-- Delay und Reverb laufen pro Stimme — viele lange Hall-Tails gleichzeitig kosten CPU (der Schutz greift dann).
-- Keine MIDI-Steuerung, keine Lizenzdatei.
+## Limits of v0.6
+- Surround is rendered as stereo (psychoacoustic); true multichannel output (quad/5.1/7.1) is the next step.
+- Step parameters take effect from the next trigger; macros, master, scale and bypass from the next step.
+- Delay and reverb per step run per voice — many long tails at once cost CPU (the guard kicks in then).
+- Drag-and-drop in the FX chain uses the mouse; on touch screens use the ‹ › buttons.
+- Code comments are still partly German; everything you see in the app is English.
+- No MIDI control, no licence file.

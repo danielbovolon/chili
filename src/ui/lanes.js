@@ -100,10 +100,10 @@ export function stackView(app) {
   const cycle = (key, v, dir) => { const o = opts(key), j = o.indexOf(v); return o[(j + dir + o.length) % o.length]; };
   const valText = (key, v) => {
     const d = defOf(key);
-    if (key === 'on') return v ? 'An' : 'Aus';
-    if (d.t === 'tog') return v ? 'An' : 'Aus';
+    if (key === 'on') return v ? 'On' : 'Off';
+    if (d.t === 'tog') return v ? 'On' : 'Off';
     if (d.t === 'sel') { const o = d.o.find((x) => x[0] === v); return o ? o[1] : String(v); }
-    if (key === 'slice') return nSl() ? `Slice ${v + 1}` : 'kein Sample';
+    if (key === 'slice') return nSl() ? `Slice ${v + 1}` : 'no sample';
     return fmt(d.u, v);
   };
 
@@ -153,7 +153,7 @@ export function stackView(app) {
       for (const key of l.keys) { if (key === 'source' || key === 'slice' || key === 'note') continue; vals[key] = v ? v.v[key] : randValue(key, 0); }
       for (const [key, val] of Object.entries(vals)) if (val !== undefined) for (let i = 0; i < L; i++) st[i][key] = val;
       if (!P().layers[id].on && l.bypass) P().layers[id].on = true;
-      return v ? v.n : 'Zufall';
+      return v ? v.n : 'random';
     }
     for (const key of l.keys) {
       if (key === 'source' && (op !== 'rnd' || !nSl())) continue;
@@ -162,13 +162,13 @@ export function stackView(app) {
     if (op === 'rnd' && !P().layers[id].on && l.bypass) P().layers[id].on = true;
     return null;
   }
-  app.layerOp = (id, op) => { app.snapshot(); const n = layerApply(id, op); changed(); if (n) app.toast(`${LAYER_MAP[id].label}: Preset „${n}" auf allen Steps`); el.refresh(); };
+  app.layerOp = (id, op) => { app.snapshot(); const n = layerApply(id, op); changed(); if (n) app.toast(`${LAYER_MAP[id].label}: preset “${n}” on all steps`); el.refresh(); };
   app.randomAll = (op) => {
     app.snapshot();
-    for (const l of LAYERS) if (l.id !== 'rip') layerApply(l.id, op);
+    for (const l of LAYERS) layerApply(l.id, op === 'all' ? 'rnd' : op); // 'all' = jeder Step eigener Zufallswert (Bug v0.5: fiel auf Reset durch)
     if (op === 'all') for (let i = 0; i < N(); i++) P().steps[i].on = randValue('on', i);
     changed(); el.refresh();
-    app.toast(op === 'one' ? 'Jede Reihe: ein zufälliges Preset' : 'Jeder Step jeder Reihe: zufällig');
+    app.toast(op === 'one' ? 'Every row: one random preset' : 'Every step of every row: random');
   };
 
   function changed() { app.commit(); dirty = true; updateChips(); updateReadouts(); }
@@ -180,13 +180,25 @@ export function stackView(app) {
     chips.append(h('span', { class: 'chips-l' }, 'Layer'));
     for (const l of LAYERS) {
       const st = P().layers[l.id];
-      const c = h('button', { class: 'chip', 'data-id': l.id, style: { '--lc': l.color }, 'data-help': `${l.label} — ${l.help} Klick blendet den Layer ein/aus.`,
+      const c = h('button', { class: 'chip', 'data-id': l.id, style: { '--lc': l.color }, 'data-help': `${l.label} — ${l.help} Click to show/hide the layer.`,
         onclick: () => { st.show = !st.show; app.commit(); el.refresh(); } }, h('i', {}), l.label);
       chips.append(c);
     }
+    const tool = (sym, help, fn) => h('button', { class: 'ibtn', 'data-help': help, onclick: fn }, sym);
     chips.append(h('span', { class: 'grow' }),
-      h('button', { class: 'ibtn', 'data-help': 'Alle sichtbaren Layer aufklappen: jede Lane des Layers wird angezeigt.', onclick: () => { LAYERS.forEach((l) => (P().layers[l.id].open = true)); el.refresh(); } }, '⊞'),
-      h('button', { class: 'ibtn', 'data-help': 'Alle Layer zuklappen: nur die gewählte Haupt-Lane pro Layer.', onclick: () => { LAYERS.forEach((l) => (P().layers[l.id].open = false)); el.refresh(); } }, '⊟'));
+      h('span', { class: 'chips-l' }, 'Pattern'),
+      tool('◀', 'Shift the whole pattern one step left.', () => app.patternOp('left')),
+      tool('▶', 'Shift the whole pattern one step right.', () => app.patternOp('right')),
+      tool('×2', 'Double the pattern.', () => app.patternOp('double')),
+      tool('↶', 'Undo — Ctrl/⌘+Z.', () => app.undo()),
+      tool('↷', 'Redo — Ctrl/⌘+Shift+Z.', () => app.redo()),
+      h('span', { class: 'vsep' }),
+      h('span', { class: 'chips-l' }, 'All rows'),
+      diceBtn('1', 'Roll 1 — every row gets one random preset, the same on all steps. Gates stay.', () => app.randomAll('one')),
+      diceBtn('ALL', 'Roll ALL — every step of every row gets its own random value, gates included.', () => app.randomAll('all'), 'hot'),
+      h('span', { class: 'vsep' }),
+      h('button', { class: 'ibtn', 'data-help': 'Expand all layers: show every lane of each layer.', onclick: () => { LAYERS.forEach((l) => (P().layers[l.id].open = true)); el.refresh(); } }, '⊞'),
+      h('button', { class: 'ibtn', 'data-help': 'Collapse all layers: only the chosen main lane per layer.', onclick: () => { LAYERS.forEach((l) => (P().layers[l.id].open = false)); el.refresh(); } }, '⊟'));
     updateChips();
   }
   function updateChips() {
@@ -205,11 +217,11 @@ export function stackView(app) {
     const ro = h('span', { class: 'ro' });
     const ops = h('span', { class: 'ops' });
     const op = (sym, o, help) => (sym === '✦' ? diceBtn('', help, () => app.laneOp(key, o), 'sm') : h('button', { class: 'ibtn', 'data-help': help, onclick: () => app.laneOp(key, o) }, sym));
-    if (kind === 'gate') ops.append(op('✦', 'rnd', 'Zufälliges Gate-Muster.'), op('●', 'reset', 'Alle Steps an.'), op('○', 'off', 'Alle Steps aus.'), op('◀', 'left', 'Muster einen Step nach links rotieren.'), op('▶', 'right', 'Muster einen Step nach rechts rotieren.'));
-    else ops.append(op('✦', 'rnd', 'Lane würfeln: zufällige, musikalisch begrenzte Werte.'), op('⟲', 'reset', 'Lane auf Standardwerte.'), op('◀', 'left', 'Lane einen Step nach links rotieren.'), op('▶', 'right', 'Lane einen Step nach rechts rotieren.'));
+    if (kind === 'gate') ops.append(op('✦', 'rnd', 'Random gate pattern.'), op('●', 'reset', 'All steps on.'), op('○', 'off', 'All steps off.'), op('◀', 'left', 'Rotate the pattern one step left.'), op('▶', 'right', 'Rotate the pattern one step right.'));
+    else ops.append(op('✦', 'rnd', 'Roll this lane: random, musically limited values per step.'), op('⟲', 'reset', 'Lane back to defaults.'), op('◀', 'left', 'Rotate this lane one step left.'), op('▶', 'right', 'Rotate this lane one step right.'));
     const name = kind === 'gate' ? 'Gate' : LANE_LABEL[key] || defOf(key).l;
     const lab = h('div', { class: `lane-l${primary ? ' prim' : ''}` }, h('span', { class: 'ln' }, name), ro, ops);
-    const help = kind === 'gate' ? 'Gate — Steps an/aus. Klicken und ziehen malt An oder Aus über mehrere Steps.' : `${layer.label} · ${name} — ziehen zeichnet · Shift Linie · Alt fein · Strg/⌘ alle · Rechtsklick/Doppelklick Reset`;
+    const help = kind === 'gate' ? 'Gate — steps on/off. Click and drag paints on or off across steps.' : `${layer.label} · ${name} — drag to draw · Shift line · Alt fine · Ctrl/⌘ all steps · right-click/double-click reset`;
     const row = h('div', { class: `lane k-${kind}`, style: { '--lc': layer ? layer.color : '#ff3b2f', height: `${H}px` }, 'data-help': help }, lab, h('div', { class: 'lane-c' }, cv));
     const lane = { key, kind, layer, cv, ro, H, row };
     attach(lane);
@@ -218,7 +230,7 @@ export function stackView(app) {
   }
   function rulerRow() {
     const cv = h('canvas', { class: 'lane-cv' });
-    const row = h('div', { class: 'lane k-ruler', style: { height: '18px' }, 'data-help': 'Step-Nummer anklicken: Step vorhören.' }, h('div', { class: 'lane-l' }, h('span', { class: 'ln dim' }, 'Step')), h('div', { class: 'lane-c' }, cv));
+    const row = h('div', { class: 'lane k-ruler', style: { height: '18px' }, 'data-help': 'Click a step number to preview the step.' }, h('div', { class: 'lane-l' }, h('span', { class: 'ln dim' }, 'Step')), h('div', { class: 'lane-c' }, cv));
     const lane = { key: 'ruler', kind: 'ruler', layer: null, cv, H: 18, row };
     cv.addEventListener('pointerdown', (e) => { const i = stepAt(lane, e); if (i >= 0) app.audition(i); });
     cv.addEventListener('pointermove', (e) => setHover(stepAt(lane, e), null));
@@ -230,22 +242,22 @@ export function stackView(app) {
     const st = P().layers[l.id];
     const isOn = () => (l.ripPower ? P().rip.on : st.on);
     const power = l.bypass || l.ripPower
-      ? h('button', { class: `pwr${isOn() ? ' on' : ''}`, 'data-help': l.ripPower ? 'Rip ein/aus.' : 'Layer-Bypass: neutralisiert den Layer im Klang, die gezeichneten Werte bleiben erhalten.',
+      ? h('button', { class: `pwr${isOn() ? ' on' : ''}`, 'data-help': l.ripPower ? 'Rip on/off.' : 'Layer bypass: removes the layer from the sound; your drawn values are kept.',
         onclick: () => { if (l.ripPower) { P().rip.on = !P().rip.on; app.refreshPart('special'); } else st.on = !st.on; app.commit(); el.refresh(); } },
         h('svg', { svg: true, viewBox: '0 0 16 16', html: '<path d="M8 2v6M4.6 4.2a5 5 0 1 0 6.8 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>' }))
       : h('span', { class: 'pwr-sp' });
     const tabs = h('div', { class: 'ltabs' }, l.keys.map((k) => {
       const d = defOf(k), used = P().steps.slice(0, N()).some((s) => s[k] !== d.def);
-      return h('button', { class: `${st.lane === k ? 'on' : ''}${used ? ' used' : ''}`, 'data-help': `${LANE_LABEL[k] || d.l} als Haupt-Lane zeigen. Punkt = Lane enthält gezeichnete Werte.`, onclick: () => { st.lane = k; el.refresh(); } }, LANE_LABEL[k] || d.l);
+      return h('button', { class: `${st.lane === k ? 'on' : ''}${used ? ' used' : ''}`, 'data-help': `Show ${LANE_LABEL[k] || d.l} as the main lane. Dot = this lane has drawn values.`, onclick: () => { st.lane = k; el.refresh(); } }, LANE_LABEL[k] || d.l);
     }));
     const head = h('div', { class: 'lhead', 'data-help': l.help },
       h('div', { class: 'lh-l' }, h('i', { class: 'lbar' }), power, h('span', { class: 'lname' }, l.label),
-        h('button', { class: `chev${st.open ? ' open' : ''}`, 'data-help': 'Layer auf-/zuklappen: alle Lanes des Layers zeigen.', onclick: () => { st.open = !st.open; el.refresh(); } }, '▸')),
+        h('button', { class: `chev${st.open ? ' open' : ''}`, 'data-help': 'Expand/collapse: show all lanes of this layer.', onclick: () => { st.open = !st.open; el.refresh(); } }, '▸')),
       h('div', { class: 'lh-r' }, st.open ? h('span', { class: 'lh-hint' }, `${l.keys.length} Lanes`) : tabs, h('span', { class: 'grow' }),
-        diceBtn('1', `Würfel 1 — ein zufälliges Preset für „${l.label}", gleich auf allen Steps.`, () => app.layerOp(l.id, 'one')),
-        diceBtn('ALL', `Würfel ALL — jeder Step bekommt in „${l.label}" eigene Zufallswerte.`, () => app.layerOp(l.id, 'rnd'), 'hot'),
-        h('button', { class: 'ibtn', 'data-help': `Ganzen Layer „${l.label}" zurücksetzen.`, onclick: () => app.layerOp(l.id, 'reset') }, '⟲'),
-        h('button', { class: 'ibtn', 'data-help': 'Layer ausblenden (bleibt aktiv, wenn nicht gebypasst).', onclick: () => { st.show = false; el.refresh(); } }, '✕')));
+        diceBtn('1', `Roll 1 — one random preset for “${l.label}”, the same on all steps.`, () => app.layerOp(l.id, 'one')),
+        diceBtn('ALL', `Roll ALL — every step gets its own random values in “${l.label}”.`, () => app.layerOp(l.id, 'rnd'), 'hot'),
+        h('button', { class: 'ibtn', 'data-help': `Reset the whole “${l.label}” layer.`, onclick: () => app.layerOp(l.id, 'reset') }, '⟲'),
+        h('button', { class: 'ibtn', 'data-help': 'Hide this layer (it keeps sounding unless bypassed).', onclick: () => { st.show = false; el.refresh(); } }, '✕')));
     const block = h('div', { class: `layer${isOn() ? '' : ' byp'}`, style: { '--lc': l.color } }, head);
     if (st.open) l.keys.forEach((k, j) => block.append(laneRow(k, l, j === 0)));
     else block.append(laneRow(st.lane, l, true));
@@ -257,7 +269,7 @@ export function stackView(app) {
     rows.append(rulerRow(), laneRow('on', null, true));
     const vis = LAYERS.filter((l) => P().layers[l.id].show);
     for (const l of vis) rows.append(layerBlock(l));
-    if (!vis.length) rows.append(h('div', { class: 'empty-l' }, 'Keine Layer sichtbar — oben einen Layer wählen.'));
+    if (!vis.length) rows.append(h('div', { class: 'empty-l' }, 'No layers visible — pick one in the layer bar above.'));
     buildChips(); resize(); dirty = true;
   };
 

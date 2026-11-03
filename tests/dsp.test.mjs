@@ -5,7 +5,7 @@
  *  3. Aliasing Sampler: 15-kHz-Sinus +12 st hochgepitcht (→ 30 kHz > Nyquist) muss verschwinden
  *  4. Echtzeitfaktor (CPU) */
 import { makeStep, masterDefaults, ripDefaults, macroDefaults, chaosDefaults, genvDefaults, MF_TYPES } from '../src/state/params.js';
-import { chaosKeys } from '../src/state/project.js';
+import { chaosKeys, scaleState } from '../src/state/project.js';
 
 const SR = 48000;
 let Proc;
@@ -243,5 +243,37 @@ for (const lobes of [12, 16, 24]) {
   ok(d === 0, `Aus = aus: Chaos aus (Makro 100 %), Comp/Delay/Reverb aus (Mix 100 %) → identisch zum Original (Abweichung ${d})`);
 }
 
-console.log(fails ? `\n${fails} Test(s) fehlgeschlagen` : '\nAlle Tests bestanden 🌶');
+/* 15. Master chain order: all 24 orders stable; order actually changes the sound (comp before vs. after reverb) */
+{
+  const perms = (a) => a.length < 2 ? [a] : a.flatMap((x, i) => perms([...a.slice(0, i), ...a.slice(i + 1)]).map((p) => [x, ...p]));
+  const res = new Map(); let bad = 0;
+  for (const order of perms(['filter', 'comp', 'delay', 'verb'])) {
+    const p = mk(); p.onMsg({ type: 'settings', limiter: false });
+    const m = masterDefaults(); m.fader = 1; m.order = order;
+    Object.assign(m.filter, { on: true, type: 'lp', cutoff: 900, res: 0.7 }); Object.assign(m.comp, { on: true, mix: 1, thr: -30, ratio: 8 });
+    Object.assign(m.delay, { on: true, mix: 0.5, fb: 0.6 }); Object.assign(m.verb, { on: true, mix: 0.5 });
+    p.onMsg({ type: 'state', state: state([makeStep({ source: 'synth', note: 50, gate: 0.5 }), ...Array.from({ length: 31 }, () => makeStep({ on: false }))], { master: m }) });
+    p.onMsg({ type: 'play', on: true }); const o = render(p, 1.5).L;
+    let e = 0; for (const v of o) { if (!Number.isFinite(v)) bad++; e += v * v; } res.set(order.join('>'), e);
+  }
+  const a = res.get('filter>delay>verb>comp'), b = res.get('comp>filter>delay>verb');
+  ok(bad === 0 && Math.abs(10 * Math.log10(a / b)) > 0.5, `Master chain: all 24 orders stable; Comp last vs. first differs by ${Math.abs(10 * Math.log10(a / b)).toFixed(1)} dB energy`);
+}
+
+/* 16. Scale quantise: every pitch lands in the scale (incl. chaos + warp), degree shift works */
+{
+  const p = mk(); const notes = [];
+  const orig = p.startVoice.bind(p); p.startVoice = (s, ...a) => { notes.push(s.note + s.pitch + s.fine / 100); return orig(s, ...a); };
+  const steps = Array.from({ length: 32 }, (_, i) => makeStep({ source: 'synth', note: 40 + ((i * 7) % 30), pitch: (i % 5) - 2, gate: 0.5 }));
+  const ch = { ...chaosDefaults(), on: true, depth: 1, rate: 1, targets: ['src', 'syn'] };
+  p.onMsg({ type: 'state', state: { ...state(steps), scale: scaleState({ root: 2, scale: 'pentMin', shift: 0 }), macros: { ...macroDefaults(), warp: 1 }, chaos: { ...ch, keys: chaosKeys(ch.targets) } } });
+  p.onMsg({ type: 'play', on: true }); render(p, 4);
+  const iv = [0, 3, 5, 7, 10], inScale = notes.every((n) => { const pc = (((n - 2) % 12) + 12) % 12; return iv.some((v) => Math.abs(pc - v) < 1e-6); });
+  const p2 = mk(); let first = null; const o2 = p2.startVoice.bind(p2); p2.startVoice = (s, ...a) => { if (first === null) first = s.note + s.pitch; return o2(s, ...a); };
+  p2.onMsg({ type: 'state', state: { ...state([makeStep({ source: 'synth', note: 60 }), ...Array.from({ length: 31 }, () => makeStep({ on: false }))]), scale: scaleState({ root: 0, scale: 'major', shift: 2 }) } });
+  p2.onMsg({ type: 'audition', step: 0 });
+  ok(notes.length > 20 && inScale && first === 64, `Scale: ${notes.length} notes with chaos + warp all in D minor pentatonic; C major +2 degrees: 60 → ${first} (E)`);
+}
+
+console.log(fails ? `\n${fails} Test(s) fehlgeschlagen` : '\nAll tests passed 🌶');
 process.exit(fails ? 1 : 0);

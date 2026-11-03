@@ -942,7 +942,7 @@ class ChiliProcessor extends AudioWorkletProcessor {
     this.scr = {};
     this.ch = { on: false, depth: 0.5, rate: 1, prob: 1, rand: 1, shape: 0, mode: 'rel', lock: 0, loop: 8 };
     this.chKeys = []; this.chSig = ''; this.chSt = []; this.chRng = new Rng(0x51ce);
-    this.heatC = 0; this.hs = new Float64Array(2); this.mf = new MFilter(sr); this.baseMix = [0, 0, 0];
+    this.ord = Int8Array.from([0, 2, 3, 1]); this.heatC = 0; this.hs = new Float64Array(2); this.mf = new MFilter(sr); this.baseMix = [0, 0, 0];
     this.rip = new Rip(sr);
     this.comp = new Comp(sr); this.mdel = new MDelay(sr); this.mverb = new MVerb(sr); this.lim = new Limiter(sr); this.lufs = new Lufs(sr);
     this.mixC = [0, 0, 0]; this.mixT = [0, 0, 0]; this.mK = 1 - Math.exp(-1 / (0.02 * sr));
@@ -1008,6 +1008,7 @@ class ChiliProcessor extends AudioWorkletProcessor {
     const bpm = clamp(s.bpm || 120, 10, 999), div = DIV[s.division] || 1 / 16;
     if (bpm !== this.bpm || div !== this.div) { this.bpm = bpm; this.div = div; this.calcTiming(); }
     if (s.macros) Object.assign(this.M, s.macros);
+    this.scale = s.scale && s.scale.iv && s.scale.iv.length ? s.scale : null;
     this.dir = s.direction || 'fwd';
     if (s.chaos) {
       const { keys, ...cs } = s.chaos; Object.assign(this.ch, cs);
@@ -1027,6 +1028,9 @@ class ChiliProcessor extends AudioWorkletProcessor {
       const on = (x) => x.on !== false; // FX-Schalter: aus = Mix 0, auch wenn das Raum-Makro höher steht
       this.mixT[0] = on(M.comp) ? clamp(M.comp.mix, 0, 1) : 0; this.mixT[1] = on(M.delay) ? clamp(M.delay.mix + sp * 0.6, 0, 1) : 0; this.mixT[2] = on(M.verb) ? clamp(M.verb.mix + sp * 0.8, 0, 1) : 0;
       this.mf.set(M.filter, this.wholeSec);
+      const IDS = { filter: 0, comp: 1, delay: 2, verb: 3 }, o = (M.order || []).map((x) => IDS[x]).filter((x) => x !== undefined);
+      for (const x of [0, 2, 3, 1]) if (!o.includes(x)) o.push(x);
+      this.ord = Int8Array.from(o.slice(0, 4));
       const pos = clamp(M.fader, 0, 1); this.fgT = pos * pos; // max. 0 dB
     }
   }
@@ -1117,6 +1121,18 @@ class ChiliProcessor extends AudioWorkletProcessor {
     if (M.density > 0.5 && !force && !ghost && (s.ratchet || 1) <= 1 && r.next() < (M.density - 0.5) * 0.5) s.ratchet = 2 + ((r.next() * 3) | 0);
   }
 
+  /* ---- Scale: snap to the nearest scale degree, then shift by n degrees (Ableton-style) */
+  snap(x) {
+    const { root, iv, shift } = this.scale, n = iv.length, rel = x - root, oct = Math.floor(rel / 12), pc = rel - oct * 12;
+    let bi = 0, bd = Infinity;
+    for (let k = 0; k <= n; k++) { const v = k < n ? iv[k] : 12, d = Math.abs(pc - v); if (d < bd) { bd = d; bi = k; } }
+    let idx = oct * n + bi + (shift | 0); const o2 = Math.floor(idx / n), j = idx - o2 * n;
+    return root + o2 * 12 + iv[j];
+  }
+  quantize(s) {
+    if (s.source === 'synth') { const q = this.snap(s.note + s.pitch + (s.fine || 0) / 100); const d = q - s.note; s.pitch = Math.floor(d + 1e-9); s.fine = (d - s.pitch) * 100; }
+    else { const q = this.snap(this.scale.root + s.pitch + (s.fine || 0) / 100) - this.scale.root; s.pitch = Math.floor(q + 1e-9); s.fine = (q - s.pitch) * 100; }
+  }
   trigger(i, o) {
     const s0 = this.steps[i]; if (!s0) return;
     const s = this.scr; for (const k in s0) s[k] = s0[k];
@@ -1129,6 +1145,7 @@ class ChiliProcessor extends AudioWorkletProcessor {
       if (pr < 1 && rng.next() >= pr) return;
     }
     this.macroApply(s, ghost, o.force);
+    if (this.scale) this.quantize(s);
     const r = clamp(Math.round(s.ratchet || 1), 1, 8), rv = clamp(s.ratchVel || 0, -1, 1);
     const sp = this.stepDur / r, gm = (o.gateMul || 1) * M.length / r;
     const dl = !o.force && M.warp > 0 ? rng.next() * M.warp * 0.3 * this.stepDur : 0;
@@ -1252,7 +1269,7 @@ class ChiliProcessor extends AudioWorkletProcessor {
 
   master(bL, bR, oL, oR, N) {
     const mc = this.mixC, mt = this.mixT, mK = this.mK, comp = this.comp, mf = this.mf, dl = this.mdel, vb = this.mverb, lim = this.lim, lu = this.lufs;
-    const hT = this.M.heat, hs = this.hs;
+    const hT = this.M.heat, hs = this.hs, ord = this.ord;
     const h0 = this.heatC, h1 = h0 + (hT - h0) * Math.min(1, N * this.mK), hInc = (h1 - h0) / N;
     const g0 = h0 > 0 ? Math.pow(10, (h0 * 24) / 20) : 1, g1 = h1 > 0 ? Math.pow(10, (h1 * 24) / 20) : 1, gInc = (g1 - g0) / N;
     const heatOn = h0 > 1e-5 || h1 > 1e-5; this.heatC = h1 < 1e-6 && hT === 0 ? 0 : h1;
@@ -1264,12 +1281,16 @@ class ChiliProcessor extends AudioWorkletProcessor {
         const sl = adaa(l * g, hs, 0) * comp, sr2 = adaa(r * g, hs, 1) * comp;
         l += (sl - l) * w; r += (sr2 - r) * w;
       }
-      if (mf.process(l, r, mK)) { l = FO[0]; r = FO[1]; }
       mc[0] += (mt[0] - mc[0]) * mK; mc[1] += (mt[1] - mc[1]) * mK; mc[2] += (mt[2] - mc[2]) * mK;
-      if (mc[0] > 1e-5) { const g = comp.gain(l, r), k = mc[0]; l += (l * g - l) * k; r += (r * g - r) * k; }
-      else comp.gr *= 0.999;
-      if (mc[1] > 1e-5 || mt[1] > 0) { dl.process(l, r); const k = mc[1]; l += (FO[0] - l) * k; r += (FO[1] - r) * k; }
-      if (mc[2] > 1e-5 || mt[2] > 0) { vb.process(l, r); const k = mc[2]; l += (FO[0] - l) * k; r += (FO[1] - r) * k; }
+      // Master chain in user order (0 filter · 1 comp · 2 delay · 3 reverb)
+      for (let q = 0; q < 4; q++) {
+        switch (ord[q]) {
+          case 0: if (mf.process(l, r, mK)) { l = FO[0]; r = FO[1]; } break;
+          case 1: if (mc[0] > 1e-5) { const g = comp.gain(l, r), k = mc[0]; l += (l * g - l) * k; r += (r * g - r) * k; } else comp.gr *= 0.999; break;
+          case 2: if (mc[1] > 1e-5 || mt[1] > 0) { dl.process(l, r); const k = mc[1]; l += (FO[0] - l) * k; r += (FO[1] - r) * k; } break;
+          case 3: if (mc[2] > 1e-5 || mt[2] > 0) { vb.process(l, r); const k = mc[2]; l += (FO[0] - l) * k; r += (FO[1] - r) * k; } break;
+        }
+      }
       this.fg += (this.fgT - this.fg) * this.fK; l *= this.fg; r *= this.fg;
       if ((l > 1 || l < -1 || r > 1 || r < -1)) this.over = true;
       if (this.limOn) { lim.process(l, r); l = FO[0]; r = FO[1]; if (lim.g < this.limMin) this.limMin = lim.g; }

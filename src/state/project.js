@@ -1,11 +1,11 @@
-/* Chili — Projektmodell */
-import { makeStep, masterDefaults, ripDefaults, macroDefaults, chaosDefaults, mfDefaults, genvDefaults, NOTE_NAMES, STEP_DEFS, STEP_DEF_MAP } from './params.js';
+/* Project model */
+import { makeStep, masterDefaults, ripDefaults, macroDefaults, chaosDefaults, mfDefaults, genvDefaults, scaleDefaults, SCALES, NOTE_NAMES, STEP_DEFS, STEP_DEF_MAP } from './params.js';
 import { LAYERS, LAYER_MAP, layerDefaults } from './layers.js';
 
 export const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
 
-/** Demo-Pattern: läuft sofort mit dem Synth, ohne dass ein Sample geladen sein muss. */
-export function newProject(name = 'Neues Projekt', demo = true) {
+/** Demo pattern: plays straight away with the synth, no sample needed. */
+export function newProject(name = 'New Project', demo = true) {
   const steps = [];
   const notes = [45, 48, 52, 55, 57, 52, 60, 55, 45, 48, 55, 57, 64, 60, 57, 52];
   for (let i = 0; i < 32; i++) {
@@ -23,13 +23,13 @@ export function newProject(name = 'Neues Projekt', demo = true) {
     version: 1, id: uid(), name, created: Date.now(), updated: Date.now(),
     transport: { tempoMode: 'bpm', bpm: 120, hz: 2, note: 'A', octave: 4, length: 16, division: '1/16', swing: 0, direction: 'fwd' },
     steps, slices: [], samples: [],
-    genv: genvDefaults(), rip: ripDefaults(), master: masterDefaults(), layers: layerDefaults(), macros: macroDefaults(), chaos: chaosDefaults(),
+    genv: genvDefaults(), scale: scaleDefaults(), rip: ripDefaults(), master: masterDefaults(), layers: layerDefaults(), macros: macroDefaults(), chaos: chaosDefaults(),
   };
 }
 
-/** Ältere/fremde Projektdaten auf aktuelles Schema bringen (fehlende Felder → Defaults). */
+/** Bring older project data up to the current schema (missing fields → defaults). */
 export function normalizeProject(p) {
-  const base = newProject(p.name || 'Projekt', false);
+  const base = newProject(p.name || 'Project', false);
   const out = { ...base, ...p };
   out.transport = { ...base.transport, ...(p.transport || {}) };
   out.steps = Array.from({ length: 32 }, (_, i) => ({ ...makeStep(), ...((p.steps || [])[i] || { on: false }) }));
@@ -38,8 +38,9 @@ export function normalizeProject(p) {
   delete out.collide;
   out.rip = { ...base.rip, ...(p.rip || {}) };
   const m = p.master || {};
-  out.master = { comp: { ...base.master.comp, ...(m.comp || {}) }, delay: { ...base.master.delay, ...(m.delay || {}) }, verb: { ...base.master.verb, ...(m.verb || {}) }, filter: { ...mfDefaults(), ...(m.filter || {}) }, fader: m.fader ?? base.master.fader };
-  for (const k of ['comp', 'delay', 'verb']) if (!m[k] || m[k].on === undefined) out.master[k].on = out.master[k].mix > 0; // alte Projekte: an, wenn Mix > 0
+  out.master = { comp: { ...base.master.comp, ...(m.comp || {}) }, delay: { ...base.master.delay, ...(m.delay || {}) }, verb: { ...base.master.verb, ...(m.verb || {}) }, filter: { ...mfDefaults(), ...(m.filter || {}) }, fader: m.fader ?? base.master.fader, order: Array.isArray(m.order) && m.order.length === 4 ? [...m.order] : ['filter', 'delay', 'verb', 'comp'] };
+  for (const k of ['comp', 'delay', 'verb']) if (!m[k] || m[k].on === undefined) out.master[k].on = out.master[k].mix > 0; // old projects: on if mix > 0
+  out.scale = { ...scaleDefaults(), ...(p.scale || {}) };
   out.macros = { ...macroDefaults(), ...(p.macros || {}) };
   out.chaos = { ...chaosDefaults(), ...(p.chaos || {}) };
   out.slices = p.slices || []; out.samples = p.samples || [];
@@ -64,12 +65,12 @@ export function tempoBpm(t, settings) {
 export function engineState(p, settings) {
   const t = p.transport;
   const { brain, ...rip } = p.rip;
-  // Bypass: Layer-Parameter in der Engine neutralisieren, gezeichnete Werte bleiben im Projekt
+  // Bypass: neutralise layer params in the engine; drawn values stay in the project
   let over = null;
   for (const l of LAYERS) if (l.bypass && p.layers && p.layers[l.id] && !p.layers[l.id].on) over = { ...(over || {}), ...l.bypass };
   const steps = over ? p.steps.map((s) => ({ ...s, ...over })) : p.steps;
   return { bpm: tempoBpm(t, settings), division: t.division, swing: t.swing, len: t.length, direction: t.direction || 'fwd', steps, slices: p.slices, genv: p.genv, rip, master: p.master,
-    macros: p.macros, chaos: { ...p.chaos, keys: chaosKeys(p.chaos.targets) } };
+    scale: scaleState(p.scale), macros: p.macros, chaos: { ...p.chaos, keys: chaosKeys(p.chaos.targets) } };
 }
 
 export function randomizeStep(s, nSlices) {
@@ -86,7 +87,7 @@ export function randomizeStep(s, nSlices) {
 }
 export function resetStep(s) { const d = makeStep(); for (const def of STEP_DEFS) s[def.k] = d[def.k]; return s; }
 
-/** Parameter-Beschreibungen für den Chaos-Modulator in der Engine */
+/** Parameter descriptors for the engine's chaos modulator */
 const ckCache = new Map();
 export function chaosKeys(targets = []) {
   const sig = targets.join(','); if (ckCache.has(sig)) return ckCache.get(sig);
@@ -101,4 +102,9 @@ export function chaosKeys(targets = []) {
     }
   }
   ckCache.set(sig, keys); return keys;
+}
+
+export function scaleState(sc) {
+  const def = SCALES.find((x) => x[0] === (sc && sc.scale));
+  return { root: (sc && sc.root) | 0, iv: def ? def[2] : null, shift: (sc && sc.shift) | 0 };
 }

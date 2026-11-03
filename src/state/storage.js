@@ -48,7 +48,7 @@ export async function exportProject(p) {
 }
 export async function importProjectFile(file, newId) {
   const j = JSON.parse(await file.text());
-  if (!j.chili || !j.project) throw new Error('Keine gültige .chili-Datei');
+  if (!j.chili || !j.project) throw new Error('Not a valid .chili file');
   for (const [id, f] of Object.entries(j.files || {})) await putSample({ id, name: f.name, type: f.type, bytes: unb64(f.data) });
   const p = { ...j.project, id: newId, updated: Date.now() };
   await putProject(p);

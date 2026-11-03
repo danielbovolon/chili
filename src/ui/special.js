@@ -7,19 +7,19 @@ const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v
 export function ripView(app) {
   const R = () => app.project.rip;
   const sw = h('button', { class: 'switch', onclick: () => { R().on = !R().on; app.commit('special'); } });
-  const freeze = h('button', { class: 'tog', 'data-help': 'Lernen einfrieren: das Netz behält seinen jetzigen Zustand.', onclick: () => { R().freeze = !R().freeze; app.commit('special'); } }, 'Freeze');
-  const reset = h('button', { class: 'btn', 'data-help': 'Neues Gehirn: das Netz startet mit neuem Seed und vergisst das Gelernte.', onclick: () => { R().seed = (Math.random() * 1e9) | 0; R().brain = null; app.engine.resetBrain(R().seed); app.commit('special'); } }, 'Neu');
+  const freeze = h('button', { class: 'tog', 'data-help': 'Freeze learning: the network keeps its current state.', onclick: () => { R().freeze = !R().freeze; app.commit('special'); } }, 'Freeze');
+  const reset = h('button', { class: 'btn', 'data-help': 'New brain: the network restarts with a new seed and forgets what it learned.', onclick: () => { R().seed = (Math.random() * 1e9) | 0; R().brain = null; app.engine.resetBrain(R().seed); app.commit('special'); } }, 'New');
   const canvas = h('canvas', { class: 'brain' });
   const row = paramRow(RIP_DEFS, (k) => R()[k], (k, v) => { R()[k] = v; app.commit(); }, { small: true });
   const stat = h('div', { class: 'stat' });
-  const el = h('section', { class: 'mod rip', 'data-help': 'Rip — Beat-Repeat, gesteuert von einem rekurrenten neuronalen Netz: es hört den Sequencer, entscheidet auf jedem Step (Auslösen, Raster, Pitch, Reverse, Zerfall, Dauer) und lernt aus jeder Wiederholung.' },
+  const el = h('section', { class: 'mod rip', 'data-help': 'Rip — beat repeat driven by a recurrent neural network: it listens to the sequencer, decides on every step (trigger, grid, pitch, reverse, decay, length) and learns from every repeat.' },
     h('header', { class: 'mh' }, h('span', { class: 'mtitle' }, 'RIP'), h('span', { class: 'grow' }), freeze, reset, sw),
     h('div', { class: 'sp-body' }, h('div', { class: 'viz' }, canvas, stat), row));
   let st = null;
   el.refresh = () => { sw.classList.toggle('on', R().on); el.classList.toggle('active', R().on); freeze.classList.toggle('on', R().freeze); row.refresh(); };
-  el.meter = (m) => { st = m.rip; if (st) stat.textContent = `Events ${st.events} · Lernschritte ${st.learns} · Belohnung Ø ${st.rBar.toFixed(2)}${st.active ? ' · RIPPING' : ''}`; else stat.textContent = R().on ? 'wartet auf Wiedergabe …' : 'aus'; };
+  el.meter = (m) => { st = m.rip; if (st) stat.textContent = `Events ${st.events} · learn steps ${st.learns} · reward Ø ${st.rBar.toFixed(2)}${st.active ? ' · RIPPING' : ''}`; else stat.textContent = R().on ? 'waiting for playback …' : 'off'; };
   const pos = Array.from({ length: 24 }, (_, i) => { const a = i * 2.39996; const rr = Math.sqrt((i + 0.5) / 24); return [Math.cos(a) * rr, Math.sin(a) * rr]; });
-  const OUT = ['Auslösen', 'Raster', 'Pitch', 'Reverse', 'Zerfall', 'Dauer'];
+  const OUT = ['Trigger', 'Grid', 'Pitch', 'Reverse', 'Decay', 'Length'];
   function draw() {
     requestAnimationFrame(draw);
     if (!canvas.isConnected) return;

@@ -30,7 +30,7 @@ export class Engine {
     sp.connect(this.anL, 0); sp.connect(this.anR, 1);
     this.tdL = new Float32Array(this.anL.fftSize); this.tdR = new Float32Array(this.anR.fftSize);
     this.fdL = new Float32Array(this.anL.frequencyBinCount); this.fdR = new Float32Array(this.anR.frequencyBinCount);
-    if (settings.outputDevice && ctx.setSinkId) { try { await ctx.setSinkId(settings.outputDevice); } catch (err) { console.warn('Ausgabegerät nicht verfügbar', err); } }
+    if (settings.outputDevice && ctx.setSinkId) { try { await ctx.setSinkId(settings.outputDevice); } catch (err) { console.warn('Output device not available', err); } }
     if (ctx.state !== 'running') await ctx.resume();
     this.settings(settings);
   }

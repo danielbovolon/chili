@@ -5,32 +5,32 @@
 import { h } from './dom.js';
 
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-const MODES = [['auto', 'Auto'], ['trans', 'Transienten'], ['beat', 'Beat'], ['region', 'Region'], ['manual', 'Manuell']];
-const MAPS = [['seq', '1 2 3'], ['rev', '3 2 1'], ['pp', 'Ping-Pong'], ['rnd', 'Zufall'], ['one', 'nur 1']];
+const MODES = [['auto', 'Auto'], ['trans', 'Transient'], ['beat', 'Beat'], ['region', 'Region'], ['manual', 'Manual']];
+const MAPS = [['seq', '1 2 3'], ['rev', '3 2 1'], ['pp', 'Ping-Pong'], ['rnd', 'Random'], ['one', 'only 1']];
 
 export function viewportView(app) {
   const S = () => app.slicing;
   const fileIn = h('input', { type: 'file', accept: 'audio/*', multiple: true, style: { display: 'none' }, onchange: (e) => { app.importFiles([...e.target.files]); e.target.value = ''; } });
-  const sampleSel = h('select', { class: 'sel smp', 'data-help': 'Angezeigtes Sample. Die Slice-Lane kann Slices aus allen Samples des Projekts verwenden.', onchange: (e) => { app.viewSample = e.target.value; view0 = 0; view1 = 1; el.refresh(); } });
-  const modeSel = h('select', { class: 'sel', 'data-help': 'Slice-Modus wie in Simpler: Auto, Transienten, Beat-Raster, gleiche Regionen oder Manuell (Marker im Bild ziehen).', onchange: (e) => { S().mode = e.target.value; el.refresh(); } }, MODES.map(([v, l]) => h('option', { value: v }, l)));
-  const countSel = h('select', { class: 'sel', 'data-help': 'Anzahl Slices.', onchange: (e) => { S().count = e.target.value; } }, ['steps', 4, 8, 12, 16, 24, 32].map((n) => h('option', { value: n }, n === 'steps' ? '=Steps' : `${n}`)));
-  const gridSel = h('select', { class: 'sel', 'data-help': 'Beat-Raster: Länge eines Slices als Notenwert beim Projekttempo.', onchange: (e) => { S().grid = e.target.value; } }, ['1/2', '1/4', '1/8', '1/16', '1/32'].map((g) => h('option', { value: g }, g)));
-  const sens = h('input', { type: 'range', min: 0, max: 1, step: 0.01, value: 0.5, class: 'range', 'data-help': 'Empfindlichkeit der Transienten-Erkennung.', oninput: (e) => { S().sens = +e.target.value; } });
-  const mapSel = h('select', { class: 'sel', 'data-help': 'Wie die Slices auf die Steps verteilt werden.', onchange: (e) => { S().map = e.target.value; } }, MAPS.map(([v, l]) => h('option', { value: v }, l)));
+  const sampleSel = h('select', { class: 'sel smp', 'data-help': 'Displayed sample. The slice lane can use slices from every sample in the project.', onchange: (e) => { app.viewSample = e.target.value; view0 = 0; view1 = 1; el.refresh(); } });
+  const modeSel = h('select', { class: 'sel', 'data-help': 'Slice mode as in Simpler: auto, transients, beat grid, equal regions or manual (drag the markers).', onchange: (e) => { S().mode = e.target.value; el.refresh(); } }, MODES.map(([v, l]) => h('option', { value: v }, l)));
+  const countSel = h('select', { class: 'sel', 'data-help': 'Number of slices.', onchange: (e) => { S().count = e.target.value; } }, ['steps', 4, 8, 12, 16, 24, 32].map((n) => h('option', { value: n }, n === 'steps' ? '=Steps' : `${n}`)));
+  const gridSel = h('select', { class: 'sel', 'data-help': 'Beat grid: slice length as a note value at the project tempo.', onchange: (e) => { S().grid = e.target.value; } }, ['1/2', '1/4', '1/8', '1/16', '1/32'].map((g) => h('option', { value: g }, g)));
+  const sens = h('input', { type: 'range', min: 0, max: 1, step: 0.01, value: 0.5, class: 'range', 'data-help': 'Sensitivity of the transient detection.', oninput: (e) => { S().sens = +e.target.value; } });
+  const mapSel = h('select', { class: 'sel', 'data-help': 'How the slices are spread over the steps.', onchange: (e) => { S().map = e.target.value; } }, MAPS.map(([v, l]) => h('option', { value: v }, l)));
   const zb = (t, help, fn) => h('button', { class: 'ibtn', 'data-help': help, onclick: fn }, t);
-  const cv = h('canvas', { class: 'wave-cv' }), ov = h('canvas', { class: 'ov-cv', 'data-help': 'Übersicht: Fenster ziehen zum Navigieren, Doppelklick zeigt alles.' });
-  const screen = h('div', { class: 'wave-box', 'data-help': 'Mausrad zoomt · Shift+Rad oder Ziehen verschiebt · Marker ziehen · Doppelklick = Marker · Rechtsklick = Marker weg · Slice-Nummer = hinzoomen' }, cv, h('i', { class: 'scan' }));
+  const cv = h('canvas', { class: 'wave-cv' }), ov = h('canvas', { class: 'ov-cv', 'data-help': 'Overview: drag the window to navigate, double-click shows everything.' });
+  const screen = h('div', { class: 'wave-box', 'data-help': 'Wheel zooms · Shift+wheel or drag scrolls · drag markers · double-click = add marker · right-click = remove marker · slice number = zoom to it' }, cv, h('i', { class: 'scan' }));
   const bar = h('div', { class: 'sb-bar' },
     h('span', { class: 'mtitle' }, 'SAMPLE'),
-    h('button', { class: 'btn accent', 'data-help': 'Audiodateien importieren — werden automatisch gesliced und auf die Steps gelegt.', onclick: () => fileIn.click() }, 'Import'),
-    h('button', { class: 'btn recbtn', 'data-help': 'Aufnahme: Eingang oder Master direkt als neues Sample (Modul REC rechts).', onclick: () => app.toggleRecorder() }, h('i', {}), 'Rec'),
+    h('button', { class: 'btn accent', 'data-help': 'Import audio files — they are sliced automatically and laid onto the steps.', onclick: () => fileIn.click() }, 'Import'),
+    h('button', { class: 'btn recbtn', 'data-help': 'Record: input or master straight into a new sample (REC module on the right).', onclick: () => app.toggleRecorder() }, h('i', {}), 'Rec'),
     sampleSel, h('span', { class: 'vsep' }),
     modeSel, countSel, gridSel, sens, mapSel,
-    h('button', { class: 'btn', 'data-help': 'Slicen: schneidet das Sample im gewählten Modus und verteilt die Slices auf die Steps.', onclick: () => app.reslice(app.viewSample, S().mode, S().count, S().sens, true, false, S().map) }, 'Slice'),
-    h('button', { class: 'btn hot', 'data-help': 'Peaks finden: sucht die stärksten Einschwingvorgänge im ganzen Sample, schneidet dort und legt einen Peak auf jeden Step.', onclick: () => app.reslice(app.viewSample, 'peaks', 'steps', 0.5, true, false, S().map) }, '⟁ Peaks'),
+    h('button', { class: 'btn', 'data-help': 'Slice: cuts the sample in the chosen mode and spreads the slices over the steps.', onclick: () => app.reslice(app.viewSample, S().mode, S().count, S().sens, true, false, S().map) }, 'Slice'),
+    h('button', { class: 'btn hot', 'data-help': 'Find peaks: finds the strongest transients in the whole sample, cuts there and puts one peak on each step.', onclick: () => app.reslice(app.viewSample, 'peaks', 'steps', 0.5, true, false, S().map) }, '⟁ Peaks'),
     h('span', { class: 'grow' }),
-    zb('−', 'Herauszoomen.', () => zoom(0.5, 1 / 1.6)), zb('+', 'Hineinzoomen.', () => zoom(0.5, 1.6)), zb('⤢', 'Ganzes Sample zeigen.', () => { view0 = 0; view1 = 1; }),
-    zb('✕', 'Sample aus dem Projekt entfernen.', () => app.removeSample(app.viewSample)), fileIn);
+    zb('−', 'Zoom out.', () => zoom(0.5, 1 / 1.6)), zb('+', 'Zoom in.', () => zoom(0.5, 1.6)), zb('⤢', 'Show the whole sample.', () => { view0 = 0; view1 = 1; }),
+    zb('✕', 'Remove the sample from the project.', () => app.removeSample(app.viewSample)), fileIn);
   const el = h('section', { class: 'samplebar mod' }, bar, screen, ov);
 
   /* ---------- Ansicht */
@@ -121,7 +121,7 @@ export function viewportView(app) {
     const id = app.viewSample, P = app.project;
     if (!id || !app.peaks.get(id)) {
       g.fillStyle = C.dim; g.font = '600 10px "Chakra Petch", sans-serif'; g.textAlign = 'center';
-      g.fillText(W < 520 ? '＋ AUDIO ABLEGEN · KLICK = IMPORT' : '＋  AUDIO HIER ABLEGEN  ·  KLICK = IMPORT  ·  OHNE SAMPLE SPIELT DER SYNTH', W / 2, H / 2 + 4); g.textAlign = 'left'; return;
+      g.fillText(W < 520 ? '＋ DROP AUDIO · CLICK = IMPORT' : '＋  DROP AUDIO HERE  ·  CLICK = IMPORT  ·  WITHOUT A SAMPLE THE SYNTH PLAYS', W / 2, H / 2 + 4); g.textAlign = 'left'; return;
     }
     const L = P.transport.length, mid = H / 2 + 5, amp = (H - 20) / 2;
     const used = new Map(); P.steps.slice(0, L).forEach((s, i) => { if (s.on && s.source !== 'synth') { if (!used.has(s.slice)) used.set(s.slice, 0); used.set(s.slice, used.get(s.slice) + 1); } });
@@ -167,7 +167,7 @@ export function viewportView(app) {
     const ss = app.project.samples, s = S();
     if (!ss.find((x) => x.id === app.viewSample)) { app.viewSample = ss[0] ? ss[0].id : null; view0 = 0; view1 = 1; }
     sampleSel.innerHTML = '';
-    if (!ss.length) sampleSel.append(h('option', {}, '— kein Sample —'));
+    if (!ss.length) sampleSel.append(h('option', {}, '— no sample —'));
     ss.forEach((x) => sampleSel.append(h('option', { value: x.id, selected: x.id === app.viewSample }, x.name)));
     sampleSel.disabled = !ss.length;
     modeSel.value = s.mode; countSel.value = String(s.count); gridSel.value = s.grid; mapSel.value = s.map; sens.value = s.sens;
