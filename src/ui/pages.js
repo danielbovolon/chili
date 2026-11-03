@@ -19,7 +19,7 @@ export function projectsView(app) {
       list.append(h('article', { class: `pcard${cur ? ' cur' : ''}` },
         h('div', { class: 'pc-mini' }, (p.steps || []).slice(0, t.length || 16).map((s) => h('i', { class: s.on ? 'on' : '' }))),
         h('div', { class: 'pc-main' },
-          h('h3', {}, p.name, cur ? h('span', { class: 'chip' }, 'geöffnet') : null),
+          h('h3', {}, p.name, cur ? h('span', { class: 'badge' }, 'geöffnet') : null),
           h('p', {}, `${t.length || 16} Steps · ${nOn} aktiv · ${(p.samples || []).length} Sample(s) · ${new Date(p.updated).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })}`)),
         h('div', { class: 'tools' },
           h('button', { class: 'btn accent', onclick: () => app.openProject(p.id) }, 'Öffnen'),
@@ -41,7 +41,7 @@ export function settingsView(app) {
   const chk = (k) => h('input', { type: 'checkbox', class: 'chk', checked: !!draft[k], onchange: (e) => { draft[k] = e.target.checked; } });
   const devSel = sel('outputDevice', [['', 'System-Standard']]);
   const info = h('div', { class: 'ainfo' });
-  const grp = (t, ...rows) => h('section', { class: 'card sgroup' }, h('h3', {}, t), ...rows);
+  const grp = (t, ...rows) => h('section', { class: 'panel sgroup' }, h('h3', {}, t), ...rows);
   const el = h('main', { class: 'page settings' },
     h('header', { class: 'page-h' }, h('div', {}, h('h2', {}, 'Einstellungen'), h('p', {}, 'Änderungen an Audio-Gerät, Samplerate, Qualität oder Voices starten die Engine neu (Wiedergabe stoppt kurz).')),
       h('div', { class: 'tools' }, h('button', { class: 'btn', onclick: () => { Object.assign(draft, app.defaultSettings()); el.build(); } }, 'Standardwerte'), h('button', { class: 'btn accent', onclick: () => app.applySettings(draft) }, 'Übernehmen'))),
@@ -72,8 +72,7 @@ export function settingsView(app) {
         row('Bit-Tiefe', null, sel('exportBits', [['16', '16 Bit PCM'], ['24', '24 Bit PCM'], ['32', '32 Bit Float']])),
         row('TPDF-Dither', 'Nur für 16/24 Bit.', chk('dither'))),
       grp('Projekte & Bedienung',
-        row('Autosave', 'Sekunden, 0 = aus', num('autosave', 0, 600, 5)),
-        row('Vorhören bei Auswahl', 'Step beim Anklicken abspielen, wenn gestoppt.', chk('auditionOnSelect'))),
+        row('Autosave', 'Sekunden, 0 = aus', num('autosave', 0, 600, 5))),
     );
     info.textContent = app.engine.running ? `Läuft: ${app.engine.sampleRate} Hz · Ausgabelatenz ≈ ${(app.engine.latency * 1000).toFixed(1)} ms` : 'Engine nicht gestartet.';
     if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {

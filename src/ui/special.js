@@ -10,8 +10,8 @@ export function collideView(app) {
   const canvas = h('canvas', { class: 'ring' });
   const row = paramRow(COLLIDE_DEFS, (k) => C()[k], (k, v) => { C()[k] = v; app.commit(); });
   const stat = h('div', { class: 'stat' });
-  const el = h('section', { class: 'card special collide' },
-    h('header', { class: 'card-h' }, h('h3', {}, 'Collide'), h('span', { class: 'sub' }, 'Zwei Strahlen umkreisen die Sequenz gegenläufig. Wo sie sich treffen, zerbricht der Klang in Trümmer.'), sw),
+  const el = h('section', { class: 'panel module collide', 'data-help': 'Collide — zwei Strahlen umkreisen die Sequenz gegenläufig. Wo sie sich treffen, zerbricht der Klang in Trümmer-Grains. Strahl B beschleunigt mit jeder Runde, über 8× folgt ein Beam Dump.' },
+    h('header', { class: 'ph' }, h('span', { class: 'ptitle' }, 'Collide'), sw),
     h('div', { class: 'sp-body' }, h('div', { class: 'viz' }, canvas, stat), row));
   const flashes = []; let posA = 0, posB = 0, lastT = 0, sf = 1, live = false;
   el.refresh = () => { sw.classList.toggle('on', C().on); el.classList.toggle('active', C().on); row.refresh(); };
@@ -65,8 +65,8 @@ export function ripView(app) {
   const canvas = h('canvas', { class: 'brain' });
   const row = paramRow(RIP_DEFS, (k) => R()[k], (k, v) => { R()[k] = v; app.commit(); });
   const stat = h('div', { class: 'stat' });
-  const el = h('section', { class: 'card special rip' },
-    h('header', { class: 'card-h' }, h('h3', {}, 'Rip'), h('span', { class: 'sub' }, 'Beat-Repeat mit einem rekurrenten neuronalen Netz, das hört, entscheidet und aus jeder Wiederholung lernt.'), sw),
+  const el = h('section', { class: 'panel module rip', 'data-help': 'Rip — Beat-Repeat, gesteuert von einem rekurrenten neuronalen Netz: es hört den Sequencer, entscheidet auf jedem Step (Auslösen, Raster, Pitch, Reverse, Zerfall, Dauer) und lernt aus jeder Wiederholung.' },
+    h('header', { class: 'ph' }, h('span', { class: 'ptitle' }, 'Rip'), sw),
     h('div', { class: 'sp-body' }, h('div', { class: 'viz' }, canvas, stat), h('div', {}, row, h('div', { class: 'prow' }, freeze, reset))));
   let st = null;
   el.refresh = () => { sw.classList.toggle('on', R().on); el.classList.toggle('active', R().on); freeze.classList.toggle('on', R().freeze); row.refresh(); };

@@ -23,9 +23,9 @@ export function masterView(app) {
   const meter = h('canvas', { class: 'meter' });
   const read = { pk: h('b', {}), lufs: h('b', {}), lim: h('b', {}), cpu: h('b', {}) };
   const over = h('span', { class: 'over', title: 'Pre-Limiter über 0 dBFS — Klick zum Zurücksetzen', onclick: () => over.classList.remove('on') }, 'OVER');
-  const fader = h('div', { class: 'fader', tabindex: 0, title: 'Master — max. 0 dB · Doppelklick: 0 dB · Shift: fein' }, scale, track);
-  const el = h('aside', { class: 'card master' },
-    h('header', { class: 'card-h' }, h('h3', {}, 'Master'), over),
+  const fader = h('div', { class: 'fader', tabindex: 0, 'data-help': 'Master-Fader — maximal 0 dB, klickfrei geglättet. Doppelklick: 0 dB · Shift: fein.' }, scale, track);
+  const el = h('aside', { class: 'panel master' },
+    h('header', { class: 'ph' }, h('span', { class: 'ptitle' }, 'Master'), h('span', { class: 'grow' }), over),
     h('div', { class: 'm-fx' }, sections),
     h('div', { class: 'm-out' },
       h('div', { class: 'f-wrap' }, fader, meter),

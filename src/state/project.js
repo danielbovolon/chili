@@ -1,5 +1,6 @@
 /* Chili — Projektmodell */
 import { makeStep, masterDefaults, collideDefaults, ripDefaults, NOTE_NAMES, STEP_DEFS } from './params.js';
+import { LAYERS, layerDefaults } from './layers.js';
 
 export const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
 
@@ -22,7 +23,7 @@ export function newProject(name = 'Neues Projekt', demo = true) {
     version: 1, id: uid(), name, created: Date.now(), updated: Date.now(),
     transport: { tempoMode: 'bpm', bpm: 120, hz: 2, note: 'A', octave: 4, length: 16, division: '1/16', swing: 0 },
     steps, slices: [], samples: [],
-    collide: collideDefaults(), rip: ripDefaults(), master: masterDefaults(),
+    collide: collideDefaults(), rip: ripDefaults(), master: masterDefaults(), layers: layerDefaults(),
   };
 }
 
@@ -37,6 +38,8 @@ export function normalizeProject(p) {
   const m = p.master || {};
   out.master = { comp: { ...base.master.comp, ...(m.comp || {}) }, delay: { ...base.master.delay, ...(m.delay || {}) }, verb: { ...base.master.verb, ...(m.verb || {}) }, fader: m.fader ?? base.master.fader };
   out.slices = p.slices || []; out.samples = p.samples || [];
+  const ld = layerDefaults(), pl = p.layers || {};
+  out.layers = Object.fromEntries(Object.entries(ld).map(([k, v]) => [k, { ...v, ...(pl[k] || {}) }]));
   return out;
 }
 
@@ -56,7 +59,11 @@ export function tempoBpm(t, settings) {
 export function engineState(p, settings) {
   const t = p.transport;
   const { brain, ...rip } = p.rip;
-  return { bpm: tempoBpm(t, settings), division: t.division, swing: t.swing, len: t.length, steps: p.steps, slices: p.slices, collide: p.collide, rip, master: p.master };
+  // Bypass: Layer-Parameter in der Engine neutralisieren, gezeichnete Werte bleiben im Projekt
+  let over = null;
+  for (const l of LAYERS) if (l.bypass && p.layers && p.layers[l.id] && !p.layers[l.id].on) over = { ...(over || {}), ...l.bypass };
+  const steps = over ? p.steps.map((s) => ({ ...s, ...over })) : p.steps;
+  return { bpm: tempoBpm(t, settings), division: t.division, swing: t.swing, len: t.length, steps, slices: p.slices, collide: p.collide, rip, master: p.master };
 }
 
 export function randomizeStep(s, nSlices) {

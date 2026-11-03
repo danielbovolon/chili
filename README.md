@@ -1,4 +1,4 @@
-# 🌶 Chili — v0.1
+# 🌶 Chili — v0.2
 
 **Deep Step Sequencer für importiertes Audio und Synth.** Inspiriert von Looperator, aber jeder Step ist ein eigenes kleines Instrument: eigener Slice oder eigene Synth-Note, eigene Hüllkurven, Filter mit Zufallsformen, Panorama-Modulation, Effektkette — plus drei Funktionen, die es so nirgends gibt: **Mutate**, **Collide**, **Rip**.
 
@@ -27,7 +27,28 @@ Browser: Chrome/Edge empfohlen (bestes AudioWorklet-Timing, Ausgabegerät wählb
 - **4 / 8 / 16 / 32 Steps**, Raster 1/8, 1/8T, 1/16, 1/16T, 1/32, Swing bis 75 %
 - **Tempo in drei Modi:** BPM · Hz (1 Hz = 60 BPM) · **Note** (z. B. A4 = 440 Hz → in Oktaven auf einen musikalischen BPM-Bereich gefaltet; Kammerton und Faltbereich einstellbar)
 - Clock läuft im Audio-Thread, sample-genau, ohne Drift (Double-Akkumulator)
-- Mehrfachauswahl (Shift/Strg), Kopieren/Einfügen, Würfeln, „Tab → alle", ×2-Verdopplung
+- Pattern-Werkzeuge: würfeln, ganzes Pattern rotieren ◀ ▶, ×2-Verdopplung, Rückgängig/Wiederholen (150 Schritte)
+
+### Layer-System (seit v0.2)
+Inspiriert von Looperator: **jeder Parameter ist eine Lane über alle Steps** und wird direkt gezeichnet — kein Step muss vorher ausgewählt werden.
+- **15 Layer:** Sequenz · Sample · Synth · Hüllkurve · Filter · Panorama · Tremolo · Pitch-Mod · Phaser · Flanger · Chorus · Delay · Reverb · Mutate · Rip. Jeder in eigener Farbe.
+- **Layer-Leiste:** Layer ein-/ausblenden. Ein leuchtender Punkt zeigt, dass der Layer gerade klanglich etwas tut.
+- **Zugeklappt** zeigt ein Layer eine Haupt-Lane; per Tab wählst du, welcher Parameter das ist (ein Punkt am Tab = dort sind Werte gezeichnet). **Aufgeklappt** (▸) zeigt jede Lane des Layers untereinander.
+- **Bypass (⏻)** pro Layer: neutralisiert den Layer im Klang, die gezeichneten Werte bleiben erhalten.
+- **Lanes sind visuell:** Slices als Mini-Wellenform, Hüllkurven als Form, Filter-Formen als Kurven-Icons, Noten als Namen, Pan bipolar. Steps, die für einen Layer nicht relevant sind (z. B. Synth-Lanes auf Sample-Steps), werden abgedunkelt.
+- Pro Lane: würfeln ✦, zurücksetzen ⟲, rotieren ◀ ▶. Pro Layer: ganzen Layer würfeln/zurücksetzen.
+- Die **Hilfeleiste** unten erklärt jedes Element, über dem die Maus steht.
+
+| Geste in einer Lane | Wirkung |
+|---|---|
+| Ziehen | Werte zeichnen, über beliebig viele Steps |
+| Shift + Ziehen | gerade Linie / Rampe |
+| Alt + Ziehen | fein und relativ, nur der angeklickte Step |
+| Strg/⌘ + Ziehen | alle Steps gleichzeitig |
+| Rechtsklick (auch ziehend) / Doppelklick | auf Standardwert |
+| Alt + Mausrad | einzelnen Step fein einstellen |
+| Klick in Auswahl-Lanes (Form, Typ, Quelle …) | nächste Option, ziehen malt sie weiter (Shift = rückwärts) |
+| Step-Nummer anklicken | Step vorhören |
 
 ### Pro Step
 | Bereich | Parameter |
@@ -68,7 +89,7 @@ Compressor (Soft-Knee, Peak-Detektor, Attack/Release, Makeup, Dry/Wet = Parallel
 - **Bounce:** nimmt den Master-Ausgang bit-genau auf und speichert eine WAV.
 
 ### Tastatur
-`Leertaste` Play/Stop · `←/→` Step wählen (Shift erweitert) · `Enter` Step an/aus · `Strg+C/V` Step kopieren/einfügen · `Alt+Klick` vorhören · Knobs: ziehen, Shift = fein, Mausrad, Doppelklick = Default, Pfeiltasten.
+`Leertaste` Play/Stop · `Strg/⌘+Z` Rückgängig · `Strg/⌘+Shift+Z` bzw. `Strg+Y` Wiederholen · `Strg/⌘+S` Speichern · Knobs: ziehen, Shift = fein, Mausrad, Doppelklick = Standardwert, Pfeiltasten.
 
 ---
 
@@ -102,15 +123,16 @@ src/
     wav.js                WAV-Encoder (16/24 PCM mit TPDF-Dither, 32 Float)
   state/
     params.js             alle Parameter-Definitionen (Bereiche, Kurven, Defaults)
-    project.js            Projektmodell, Tempo-Umrechnung, Würfeln
+    project.js            Projektmodell, Tempo-Umrechnung, Würfeln, Layer-Bypass
+    layers.js             Layer-Definitionen (Lanes, Farben, Bypass-Werte)
     storage.js            IndexedDB, .chili-Export/Import
-  ui/                     dom.js (Knobs etc.), sequencer.js, recorder.js, special.js, master.js, pages.js
+  ui/                     lanes.js (Layer-Stack), dom.js (Knobs etc.), sequencer.js, recorder.js, special.js, master.js, pages.js
 tests/dsp.test.mjs        Headless-DSP-Tests
 docs/DSP.md               Engine-Dokumentation
 ```
 
 ## Bekannte Grenzen von v0.1
-- Step-Parameter werden beim Auslösen übernommen; Änderungen wirken ab der nächsten Auslösung (Master, Collide und Rip wirken sofort).
+- Step-Parameter werden beim Auslösen übernommen; Änderungen wirken ab der nächsten Auslösung (Master, Collide, Rip und Layer-Bypass wirken ab dem nächsten Step).
 - Ein Sample-Pool pro Projekt; „Slicen" ordnet die Steps des Patterns neu zu.
 - Synth-Oszillatoren ohne Pulsbreitenmodulation; keine MIDI-Steuerung, kein Undo.
 - Bei sehr dichten Patterns mit langen Delay/Reverb-Ausklängen auf vielen Steps steigt die CPU-Last — Voice-Limit in den Einstellungen anpassen.

@@ -7,7 +7,7 @@ export function h(tag, props = {}, ...kids) {
     if (v == null || v === false || k === 'svg') continue;
     if (k.startsWith('on')) el.addEventListener(k.slice(2).toLowerCase(), v);
     else if (k === 'class') el.setAttribute('class', v);
-    else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
+    else if (k === 'style' && typeof v === 'object') { for (const [sk, sv] of Object.entries(v)) { if (sk.startsWith('--')) el.style.setProperty(sk, sv); else el.style[sk] = sv; } }
     else if (k === 'html') el.innerHTML = v;
     else el.setAttribute(k, v === true ? '' : v);
   }
@@ -30,7 +30,7 @@ export function knob(def, get, set, opt = {}) {
   const track = svg('path', { class: 'k-track', d: arc(15, A0, A1) }), val = svg('path', { class: 'k-val' }), dot = svg('circle', { class: 'k-dot', r: 2.2 });
   s.append(track, val, dot);
   const valEl = h('div', { class: 'k-value' }), lab = h('div', { class: 'k-label' }, def.l);
-  const el = h('div', { class: `knob${opt.small ? ' small' : ''}`, tabindex: 0, title: `${def.l} — ziehen · Shift fein · Doppelklick Reset` }, s, valEl, lab);
+  const el = h('div', { class: `knob${opt.small ? ' small' : ''}`, tabindex: 0, 'data-help': `${def.l} — vertikal ziehen · Shift fein · Mausrad · Doppelklick Standardwert` }, s, valEl, lab);
   const maxFor = () => (def.dyn && opt.dynMax ? opt.dynMax() : def.max);
   const d = () => ({ ...def, max: Math.max(def.min + (def.int ? 1 : 1e-6), maxFor()) });
   const update = () => {
