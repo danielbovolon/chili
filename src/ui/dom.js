@@ -27,10 +27,11 @@ function arc(r, a, b) {
 export function knob(def, get, set, opt = {}) {
   const bip = def.min < 0 && def.max > 0;
   const s = svg('svg', { viewBox: '0 0 40 40', class: 'knob-svg' });
+  const ticks = svg('path', { class: 'k-ticks', d: arc(18.5, A0, A1) });
   const track = svg('path', { class: 'k-track', d: arc(15, A0, A1) }), val = svg('path', { class: 'k-val' }), dot = svg('circle', { class: 'k-dot', r: 2.2 });
-  s.append(track, val, dot);
+  s.append(ticks, track, val, dot);
   const valEl = h('div', { class: 'k-value' }), lab = h('div', { class: 'k-label' }, def.l);
-  const el = h('div', { class: `knob${opt.small ? ' small' : ''}`, tabindex: 0, 'data-help': `${def.l} — vertikal ziehen · Shift fein · Mausrad · Doppelklick Standardwert` }, s, valEl, lab);
+  const el = h('div', { class: `knob${opt.small ? ' small' : ''}${opt.macro ? ' macro' : ''}`, tabindex: 0, 'data-help': `${def.l} — vertikal ziehen · Shift fein · Mausrad · Doppelklick Standardwert` }, s, valEl, lab);
   const maxFor = () => (def.dyn && opt.dynMax ? opt.dynMax() : def.max);
   const d = () => ({ ...def, max: Math.max(def.min + (def.int ? 1 : 1e-6), maxFor()) });
   const update = () => {
@@ -91,3 +92,10 @@ export function paramRow(defs, get, set, opt = {}) {
 }
 
 export const CHILI_SVG = `<svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="cg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff6a3d"/><stop offset=".5" stop-color="#e8141f"/><stop offset="1" stop-color="#8a0710"/></linearGradient></defs><path d="M21.5 19.5c-6.2 1.7-9.4 8.6-8.3 16.7 1.2 9.3 7.8 17.6 18 21.3 6.6 2.4 13.9 2.9 19.5 1.8-7.4-2.7-12.6-7.9-15.6-14.3-3.1-6.5-3.3-13.3-5.4-19.2-1.4-3.9-4.4-7.4-8.2-6.3z" fill="url(#cg)"/><path d="M17.4 25.5c-1.9 3.7-2.1 9-.6 13.6" stroke="#ffc2ad" stroke-width="2.2" fill="none" stroke-linecap="round" opacity=".55"/><path d="M18.5 20.6c2-3.4 6.4-4.6 9.8-2.5-1.3.4-2.4 1.4-3 2.6" fill="#2f9e44"/><path d="M24.6 18.6c.8-4.4 3.8-7.6 8.4-8.6 2.8-.6 4.6-2.4 5.4-5.2" stroke="#2f9e44" stroke-width="3.4" fill="none" stroke-linecap="round"/></svg>`;
+
+/** Würfel mit fünf Augen — Symbol für alle Zufallsfunktionen */
+export const DICE = '<svg viewBox="0 0 20 20" class="dice" aria-hidden="true"><rect x="2.5" y="2.5" width="15" height="15" rx="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="6.6" cy="6.6" r="1.35" fill="currentColor"/><circle cx="13.4" cy="6.6" r="1.35" fill="currentColor"/><circle cx="10" cy="10" r="1.35" fill="currentColor"/><circle cx="6.6" cy="13.4" r="1.35" fill="currentColor"/><circle cx="13.4" cy="13.4" r="1.35" fill="currentColor"/></svg>';
+/** Würfel-Button: tag „1" (ein Preset für alle Steps) oder „ALL" (jeder Step eigener Zufallswert) */
+export function diceBtn(tag, help, fn, cls = '') {
+  return h('button', { class: `dbtn ${cls}`, 'data-help': help, onclick: fn }, h('span', { html: DICE }), tag ? h('b', {}, tag) : null);
+}

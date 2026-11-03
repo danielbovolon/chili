@@ -55,6 +55,14 @@ Kollision → 3…80 Grains (Hann-Fenster, 6–76 ms) aus den Slices beider bete
 - Latenzausgleich: die ersten `compN` Samples werden verworfen und ab dem Stopp-Sample `compN` Samples nachgeschrieben → identische Länge, verschobener Inhalt.
 - Daten gehen in 16384-Frame-Blöcken an den Main-Thread, werden als 32-Bit-Float-WAV (ohne Dither) gespeichert und wie ein Import behandelt.
 
+## v0.3: Makros, Chaos, Ratchets, Surround, Master-Filter
+- **Trigger-Pipeline:** Step kopieren (Scratch-Objekt, keine Allokation) → Chaos anwenden → Gate/Dichte/Chance → Makros → Ratchets/Mikro-Timing. Verzögerte Anschläge liegen in einem vorallokierten Pending-Pool (64) und werden wie Clock-Events sample-genau in den Block geschnitten.
+- **Chaos:** pro Parameter ein Kanal (prev/next/cur, Historie bis 32). Neuer Wert alle `rate` Steps mit Wahrscheinlichkeit `prob`; `next = prev + rand·(U − prev)`; mit `lock` wird stattdessen ein Wert aus der Loop-Historie wiederholt. Übergang innerhalb der Rate über stufenlos gemischte Kurven (Stufe/Linear/Cosinus/Kubisch). Anwendung im normierten Parameterraum (lin/log/kubisch wie die UI), relativ (±) oder absolut (Überblendung). Auswahl- und Schalter-Parameter springen ab Schwellwerten.
+- **Heat:** tanh mit Antiderivative-Antialiasing 1. Ordnung, `y = (F(x) − F(x₁)) / (x − x₁)`, `F = ln cosh`; Drive bis +24 dB, Ausgleich `1/√g`, sanfte Einblendung. Bei Heat 0 komplett umgangen.
+- **Master-Filter:** ZDF-SVF; LP/BP/HP/Notch als Kaskade aus 1–4 Stufen mit Butterworth-Dämpfung `k = 2·cos((2i+1)π/4N)`, Resonanz skaliert nur die letzte Stufe; Peak/Shelf nach Simper (A = 10^(gain/40)); Comb mit Hermite-Delay; Formant aus 3 parallelen Bandpässen. Modulation (Env-Follower, LFO, Stereo-Phase) mit Control-Rate und linearer Interpolation der Koeffizienten. Bypass bit-transparent, Ein-/Ausschalten über 20 ms überblendet, Zustände beim Einschalten gelöscht, NaN-Sicherheitsnetz.
+- **Surround:** nach dem Pan ein Einpol-Tiefpass (20 kHz → ~4 kHz) und −2.8 dB bei „hinten", Seitenanteil verbreitert; Orbit moduliert Pan (sin) und Tiefe (cos). Spread: M/S-Skalierung, beim Synth Seitensignal aus der Oszillator-Differenz. Alle Pfade bei neutralen Werten übersprungen.
+- **CPU-Schutz:** gleitender Mittelwert der Blockrechenzeit; über 85 % wird alle 6 Blöcke die älteste Stimme (bevorzugt im Ausklang) in 6 ms ausgeblendet.
+
 ## Voices
 - Pool `maxVoices + 4`, alles vorallokiert (keine Garbage Collection im Audio-Thread).
 - Stealing: zuerst Voices im Ausklang (nur noch Delay/Reverb-Tail), dann die älteste, mit 4-ms-Fade.

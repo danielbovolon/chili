@@ -1,18 +1,20 @@
 /* Chili — App-Controller */
 import { Engine } from './audio/engine.js';
-import { equalSlices, transientSlices, peaks } from './audio/slicer.js';
+import { equalSlices, transientSlices, beatSlices, autoSlices, mapSlices, peaks } from './audio/slicer.js';
 import { encodeWav } from './audio/wav.js';
 import { recorderView } from './ui/recorder.js';
 import * as storage from './state/storage.js';
 import { newProject, normalizeProject, engineState, uid, tempoBpm, randomizeStep } from './state/project.js';
-import { h, CHILI_SVG } from './ui/dom.js';
-import { transportView, sourceView } from './ui/sequencer.js';
+import { h, CHILI_SVG, DICE } from './ui/dom.js';
+import { deckView } from './ui/deck.js';
+import { viewportView } from './ui/viewport.js';
 import { stackView } from './ui/lanes.js';
+import { bayView, chaosView } from './ui/bay.js';
 import { collideView, ripView } from './ui/special.js';
-import { masterView } from './ui/master.js';
+import { masterFxView, filterView, outView } from './ui/master.js';
 import { projectsView, settingsView } from './ui/pages.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const SETTINGS_KEY = 'chili.settings', LAST_KEY = 'chili.lastProject';
 const defaultSettings = () => ({ sampleRate: 'auto', latency: 'interactive', outputDevice: '', quality: '16', maxVoices: 16, limiter: true, ceiling: -0.3, panLaw: 'm3', refA: 440, noteFloor: 70, peakHold: 1.5, exportBits: '24', dither: true, inputDevice: '', inputCh: 'stereo', recAutoComp: true, recOffset: 0, autosave: 30 });
 const RESTART_KEYS = ['sampleRate', 'latency', 'outputDevice', 'quality', 'maxVoices'];
@@ -36,17 +38,18 @@ app.commit = (...parts) => {
   for (const p of parts) if (p) app.refreshPart(p);
 };
 app.refreshPart = (p) => {
-  const v = app.views;
-  if (p === 'transport') v.transport.refresh(true);
-  if (p === 'transportLite') { v.transport.refresh(false); }
+  const v = app.views; if (!v.deck) return;
+  if (p === 'transport') v.deck.refresh(true);
+  if (p === 'transportLite') v.deck.refresh(false);
   if (p === 'stack' || p === 'grid' || p === 'editor') v.stack.refresh();
-  if (p === 'source') v.source.refresh();
-  if (p === 'special') { v.collide.refresh(); v.rip.refresh(); }
-  if (p === 'master') v.master.refresh();
+  if (p === 'source') v.viewport.refresh();
+  if (p === 'special') { v.collide.refresh(); v.rip.refresh(); v.bay.refresh(); }
+  if (p === 'master') { v.fx.refresh(); v.filter.refresh(); v.out.refresh(); }
   if (p === 'recorder') v.recorder.refresh();
+  if (p === 'bay') v.bay.refresh();
   if (p === 'header') renderHeader();
 };
-app.refreshAll = () => ['transport', 'stack', 'source', 'recorder', 'special', 'master', 'header'].forEach(app.refreshPart);
+app.refreshAll = () => ['transport', 'stack', 'source', 'recorder', 'special', 'master', 'chaos', 'header'].forEach((p) => (p === 'chaos' ? app.views.chaos && app.views.chaos.refresh() : app.refreshPart(p)));
 app.stepSeconds = () => {
   const d = { '1/8': 1 / 8, '1/8T': 1 / 12, '1/16': 1 / 16, '1/16T': 1 / 24, '1/32': 1 / 32 }[app.project.transport.division];
   return (240 / tempoBpm(app.project.transport, app.settings)) * d;
@@ -104,29 +107,49 @@ app.importFiles = async (files, opt = {}) => {
       app.project.samples.push({ id, name: f.name.replace(/\.[^.]+$/, '') });
       await decodeSample(id);
       first ||= id;
-      if (app.buffers.get(id)) app.reslice(id, opt.mode || 'equal', opt.count || 'steps', 0.5, files.length === 1 || first === id, true);
+      if (app.buffers.get(id)) app.reslice(id, opt.mode || app.slicing.mode, opt.count || app.slicing.count, app.slicing.sens, files.length === 1 || first === id, true);
     } catch (err) { console.error(err); toast(`„${f.name}" konnte nicht dekodiert werden`, true); }
   }
   if (first) { app.viewSample = first; app.commit('source', 'stack'); if (!opt.quiet) toast(`${files.length} Datei(en) importiert und gesliced`); }
 };
-app.reslice = (id, mode, count, sens, assign = true, quiet = false) => {
+/** Slicing wie Simpler/Sampler: mode = auto | trans | beat | region | manual; map = Zuordnung Slice → Step */
+app.slicing = { mode: 'auto', count: 'steps', grid: '1/16', sens: 0.5, map: 'seq' };
+app.reslice = (id, mode, count, sens, assign = true, quiet = false, map) => {
   const buf = app.buffers.get(id); if (!buf) return;
   if (!quiet) app.snapshot();
-  const p = app.project, L = p.transport.length, n = count === 'steps' ? L : Number(count);
-  const parts = mode === 'trans' ? transientSlices(buf, sens, n) : equalSlices(n);
+  const p = app.project, L = p.transport.length, n = count === 'steps' || count == null ? L : Number(count), S = app.slicing;
+  const bpm = tempoBpm(p.transport, app.settings);
+  let parts;
+  if (mode === 'manual') parts = p.slices.filter((s) => s.sampleId === id).map((s) => [s.a, s.b]);
+  if (!parts || !parts.length) parts = mode === 'trans' ? transientSlices(buf, sens ?? S.sens, n) : mode === 'beat' ? beatSlices(buf, bpm, S.grid, 32) : mode === 'region' || mode === 'equal' ? equalSlices(n) : autoSlices(buf, bpm, n);
   const oldIdx = new Set(p.slices.map((s, i) => (s.sampleId === id ? i : -1)).filter((i) => i >= 0));
   const keep = p.slices.filter((s) => s.sampleId !== id), remap = new Map();
   p.slices.forEach((s, i) => { if (s.sampleId !== id) remap.set(i, keep.indexOf(s)); });
   const base = keep.length;
   p.slices = keep.concat(parts.map(([a, b]) => ({ sampleId: id, a, b })));
+  const order = mapSlices(parts.length, L, map || S.map);
   p.steps.forEach((s, i) => {
-    if (assign && i < L) { s.slice = base + (i % parts.length); s.source = 'sample'; } // neues Material auf die aktiven Steps legen
-    else if (remap.has(s.slice)) s.slice = remap.get(s.slice);                           // andere Samples: Index nachführen
-    else if (oldIdx.has(s.slice)) s.slice = base + ((s.slice - Math.min(...oldIdx)) % parts.length); // gleiches Sample neu geschnitten
+    if (assign && i < L) { s.slice = base + order[i]; s.source = 'sample'; } // neues Material auf die aktiven Steps legen
+    else if (remap.has(s.slice)) s.slice = remap.get(s.slice);                // andere Samples: Index nachführen
+    else if (oldIdx.has(s.slice)) s.slice = base + ((s.slice - Math.min(...oldIdx)) % parts.length);
   });
-  if (assign) p.steps.slice(0, L).forEach((s, i) => { if (i < L) s.on = true; });
+  if (assign) p.steps.slice(0, L).forEach((s) => { s.on = true; });
   if (!quiet) { app.commit('source', 'stack'); toast(`${parts.length} Slices`); }
 };
+/** Manuelles Bearbeiten der Slice-Grenzen im Viewport */
+app.editMarkers = (id, bounds) => {
+  const p = app.project, idx = []; p.slices.forEach((s, i) => { if (s.sampleId === id) idx.push(i); });
+  const b = [...bounds].sort((x, y) => x - y);
+  if (b.length - 1 === idx.length) { idx.forEach((si, k) => { p.slices[si].a = b[k]; p.slices[si].b = b[k + 1]; }); app.commit('source'); return; }
+  // Anzahl geändert: Slices dieses Samples neu aufbauen, Steps behalten ihre Position (gekürzt auf neue Anzahl)
+  const parts = []; for (let k = 0; k < b.length - 1; k++) parts.push({ sampleId: id, a: b[k], b: b[k + 1] });
+  const keep = p.slices.filter((s) => s.sampleId !== id), remap = new Map(); p.slices.forEach((s, i) => { if (s.sampleId !== id) remap.set(i, keep.indexOf(s)); });
+  const base = keep.length, first = idx.length ? idx[0] : 0;
+  p.slices = keep.concat(parts);
+  p.steps.forEach((s) => { if (remap.has(s.slice)) s.slice = remap.get(s.slice); else if (idx.includes(s.slice)) s.slice = base + Math.min(parts.length - 1, s.slice - first); });
+  app.commit('source', 'stack');
+};
+
 app.removeSample = (id) => {
   if (!id || !confirm('Sample aus diesem Projekt entfernen?')) return;
   const p = app.project, keep = p.slices.filter((s) => s.sampleId !== id), remap = new Map();
@@ -155,8 +178,8 @@ app.toggleRec = async () => {
 };
 
 /* ------------------------------------------------------------------ Aufnahme in den Sequencer */
-app.rec = { open: false, src: 'input', mode: 'sync', passes: 1, countIn: true, monitor: false, state: 'idle', count: 0, info: null };
-app.toggleRecorder = () => { app.rec.open = !app.rec.open; app.refreshPart('recorder'); };
+app.rec = { open: true, src: 'input', mode: 'sync', passes: 1, countIn: true, monitor: false, state: 'idle', count: 0, info: null };
+app.toggleRecorder = () => { app.views.bay.show(app.bayTab === 'rec' ? 'master' : 'rec'); setMobile('bay'); };
 app.enableInput = async () => {
   await ensureAudio();
   try {
@@ -260,58 +283,80 @@ app.engine.on('tick', (m) => {
   const delay = Math.max(0, (m.t - app.engine.ctx.currentTime + app.engine.latency) * 1000);
   setTimeout(() => { if (app.playing) { app.playStep = m.step; app.views.stack.markDirty(); } }, delay);
 });
-app.engine.on('meter', (m) => { app.views.master.meter(m); app.views.recorder.meter(m); app.views.collide.meter(m); app.views.rip.meter(m); });
+app.engine.on('meter', (m) => { const v = app.views; v.out.meter(m); v.fx.meter(m); v.filter.meter(m); v.viewport.meter(m); v.recorder.meter(m); v.collide.meter(m); v.rip.meter(m); v.chaos.meter(m); });
 app.engine.on('collision', (m) => { app.views.collide.collision(m); app.flashes.push({ step: m.step, t: performance.now() }); });
 app.engine.on('dump', () => toast('Beam Dump — Strahl B zurückgesetzt'));
 
-/* ------------------------------------------------------------------ Layout */
+/* ------------------------------------------------------------------ Layout: ein Gerät, das in jeden Bildschirm passt */
 const root = document.getElementById('app');
-const header = h('header', { class: 'app-h' });
+const header = h('header', { class: 'topbar' });
 const status = h('span', { class: 'status' });
 function renderHeader() {
   header.innerHTML = '';
   const name = h('input', { class: 'pname', value: app.project.name, spellcheck: false, 'data-help': 'Projektname.', onchange: (e) => { app.project.name = e.target.value || 'Ohne Titel'; app.commit(); }, onkeydown: (e) => { e.stopPropagation(); if (e.key === 'Enter') e.target.blur(); } });
   header.append(
-    h('div', { class: 'brand' }, h('span', { class: 'logo', html: CHILI_SVG }), h('span', { class: 'word' }, 'Chili'), h('span', { class: 'ver' }, VERSION)),
-    h('nav', { class: 'nav' }, [['seq', 'Sequencer'], ['projects', 'Projekte'], ['settings', 'Einstellungen']].map(([id, l]) => h('button', { class: app.page === id ? 'on' : '', onclick: () => go(id) }, l))),
+    h('div', { class: 'brand' }, h('span', { class: 'logo', html: CHILI_SVG }), h('span', { class: 'word' }, 'CHILI'), h('span', { class: 'ver' }, VERSION)),
+    h('nav', { class: 'nav' }, [['seq', 'SEQ'], ['projects', 'PROJEKTE'], ['settings', 'SETUP']].map(([id, l]) => h('button', { class: app.page === id ? 'on' : '', onclick: () => go(id) }, l))),
     h('div', { class: 'hcenter' }, name),
-    h('div', { class: 'hright' }, status, h('button', { class: 'btn accent', 'data-help': 'Projekt speichern — Strg/⌘+S.', onclick: () => app.save() }, 'Speichern')));
+    h('div', { class: 'hright' }, status, h('button', { class: 'btn accent', 'data-help': 'Projekt speichern — Strg/⌘+S.', onclick: () => app.save() }, 'SAVE')));
   setStatus();
 }
 function setStatus() {
   const e = app.engine;
   status.innerHTML = '';
-  status.append(h('i', { class: app.dirty ? 'dot dirty' : 'dot' }), e.running ? `${(e.sampleRate / 1000).toFixed(1)} kHz · ${(e.latency * 1000).toFixed(1)} ms` : 'Audio aus');
+  status.append(h('i', { class: app.dirty ? 'dot dirty' : 'dot' }), e.running ? `${(e.sampleRate / 1000).toFixed(1)}K · ${(e.latency * 1000).toFixed(0)}MS` : 'OFFLINE');
   status.title = app.dirty ? 'Ungespeicherte Änderungen' : 'Gespeichert';
 }
 function go(page) {
   app.page = page; renderHeader();
+  device.dataset.page = page;
   for (const [k, el] of Object.entries(pages)) el.style.display = k === page ? '' : 'none';
   if (page === 'projects') app.views.projects.refresh();
   if (page === 'settings') app.views.settings.refresh();
-  if (page === 'seq') { app.views.stack.markDirty(); app.views.source.draw(); }
+  if (page === 'seq') app.views.stack.markDirty();
 }
 
 const V = app.views;
-V.transport = transportView(app); V.source = sourceView(app); V.stack = stackView(app);
-V.recorder = recorderView(app); V.collide = collideView(app); V.rip = ripView(app); V.master = masterView(app);
+V.deck = deckView(app); V.viewport = viewportView(app); V.source = V.viewport; V.stack = stackView(app);
+V.recorder = recorderView(app); V.collide = collideView(app); V.rip = ripView(app);
+V.fx = masterFxView(app); V.filter = filterView(app); V.out = outView(app); V.chaos = chaosView(app);
+V.bay = bayView(app, [
+  { id: 'master', label: 'MASTER', el: V.fx, help: 'Master: Compressor, Delay, Reverb.' },
+  { id: 'filter', label: 'FILTER', el: V.filter, help: 'Master-Filter: 10 Typen, bis 48 dB/Okt, Drive, Hüllkurvenfolger, LFO, Stereo.', lit: () => app.project.master.filter.on },
+  { id: 'chaos', label: 'CHAOS', el: V.chaos, help: 'Chaos: Zufallsmodulator für jeden Parameter jedes Steps.', lit: () => app.project.chaos.on || app.project.macros.chaos > 0 },
+  { id: 'collide', label: 'COLLIDE', el: V.collide, help: 'Collide: der Sequencer als Teilchenbeschleuniger.', lit: () => app.project.collide.on },
+  { id: 'rip', label: 'RIP', el: V.rip, help: 'Rip: neuronaler Beat-Repeat.', lit: () => app.project.rip.on },
+  { id: 'rec', label: 'REC', el: V.recorder, help: 'Aufnahme: Eingang oder Master direkt als Sample.', lit: () => app.rec.state !== 'idle' },
+]);
+const bayShow = V.bay.show; V.bay.show = (id) => { app.bayTab = id; bayShow(id); };
+app.bayTab = 'master';
 V.projects = projectsView(app); V.settings = settingsView(app);
+app.toast = (m, e) => toast(m, e);
+
 const helpText = h('span', {});
-const DEFAULT_HELP = 'Leertaste Play · In jede Lane direkt zeichnen · Shift Linie · Alt fein · Strg/⌘ alle Steps · Rechtsklick Reset · Strg/⌘+Z Rückgängig';
+const DEFAULT_HELP = 'LEERTASTE Play · in jede Lane direkt zeichnen · SHIFT Linie · ALT fein · STRG/⌘ alle Steps · RECHTSKLICK Reset · STRG/⌘+Z zurück';
 helpText.textContent = DEFAULT_HELP;
 const helpbar = h('footer', { class: 'helpbar' }, h('b', {}, '?'), helpText);
 document.addEventListener('mouseover', (e) => { const t = e.target.closest && e.target.closest('[data-help]'); helpText.textContent = t ? t.dataset.help : DEFAULT_HELP; });
-const pages = {
-  seq: h('main', { class: 'seq' }, V.transport,
-    h('div', { class: 'cols' },
-      h('div', { class: 'left' }, V.source, V.recorder, V.stack, h('div', { class: 'modules' }, V.collide, V.rip)),
-      V.master)),
-  projects: V.projects, settings: V.settings,
-};
-const gate = h('div', { class: 'gate', onclick: () => ensureAudio().then(() => { gate.classList.add('out'); setTimeout(() => gate.remove(), 450); }).catch(() => {}) },
-  h('div', { class: 'gate-in' }, h('span', { class: 'logo big', html: CHILI_SVG }), h('h1', {}, 'Chili')));
-root.append(header, pages.seq, pages.projects, pages.settings, helpbar, gate, h('div', { class: 'toasts' }));
-go('seq');
+
+const seqPage = h('div', { class: 'body' },
+  h('div', { class: 'main' }, V.viewport, V.stack),
+  V.bay, V.out);
+const pages = { seq: seqPage, projects: h('div', { class: 'body page-wrap' }, V.projects), settings: h('div', { class: 'body page-wrap' }, V.settings) };
+const mtabs = h('nav', { class: 'mtabs' }, [['seq', 'SEQ'], ['macro', 'MAKRO'], ['bay', 'MODULE'], ['out', 'OUT']].map(([id, l]) => h('button', { 'data-m': id, onclick: () => setMobile(id) }, l)));
+function setMobile(id) { device.dataset.m = id; mtabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.m === id)); if (id === 'seq') V.stack.markDirty(); }
+const device = h('div', { class: 'device', 'data-m': 'seq' }, header, V.deck, pages.seq, pages.projects, pages.settings, helpbar, mtabs);
+
+/* Startfenster: Zündung */
+const ign = h('button', { class: 'ignite', 'aria-label': 'Audio starten' },
+  h('span', { class: 'igr r1' }), h('span', { class: 'igr r2' }), h('span', { class: 'igr r3' }),
+  h('span', { class: 'core', html: '<svg viewBox="0 0 24 24"><path d="M12 3v8M6.3 6.6a8 8 0 1 0 11.4 0" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>' }));
+const gate = h('div', { class: 'gate' },
+  h('div', { class: 'gate-in' }, h('span', { class: 'logo big', html: CHILI_SVG }), h('h1', {}, 'CHILI'), ign, h('div', { class: 'ign-l' }, 'AUDIO STARTEN')));
+const ignite = () => { gate.classList.add('lit'); ensureAudio().then(() => { setTimeout(() => gate.classList.add('out'), 260); setTimeout(() => gate.remove(), 900); }).catch(() => gate.classList.remove('lit')); };
+ign.addEventListener('click', ignite);
+root.append(device, gate, h('div', { class: 'toasts' }));
+setMobile('seq'); go('seq');
 
 /* ------------------------------------------------------------------ Tastatur, Autosave, Hilfen */
 document.addEventListener('keydown', (e) => {

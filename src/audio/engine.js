@@ -6,6 +6,8 @@ export class Engine {
   on(type, fn) { (this.ls[type] ||= []).push(fn); }
   emit(type, d) { for (const f of this.ls[type] || []) f(d); }
   get running() { return !!this.node; }
+  /** Aktuelle Analyse-Daten (oder null) */
+  scope() { if (!this.anL) return null; this.anL.getFloatTimeDomainData(this.tdL); this.anR.getFloatTimeDomainData(this.tdR); this.anL.getFloatFrequencyData(this.fdL); this.anR.getFloatFrequencyData(this.fdR); return { L: this.tdL, R: this.tdR, FL: this.fdL, FR: this.fdR, sr: this.ctx.sampleRate }; }
   get sampleRate() { return this.ctx ? this.ctx.sampleRate : 0; }
   get latency() { return this.ctx ? (this.ctx.baseLatency || 0) + (this.ctx.outputLatency || 0) : 0; }
 
@@ -21,6 +23,13 @@ export class Engine {
     });
     node.port.onmessage = (e) => this.onMsg(e.data);
     node.connect(ctx.destination); this.node = node;
+    // Analyse für Viewport-Animationen: Oszilloskop, Spektrum, Goniometer (nach Fader und Limiter)
+    const sp = ctx.createChannelSplitter(2); node.connect(sp);
+    this.anL = ctx.createAnalyser(); this.anR = ctx.createAnalyser();
+    for (const a of [this.anL, this.anR]) { a.fftSize = 4096; a.smoothingTimeConstant = 0.72; a.minDecibels = -100; a.maxDecibels = -10; }
+    sp.connect(this.anL, 0); sp.connect(this.anR, 1);
+    this.tdL = new Float32Array(this.anL.fftSize); this.tdR = new Float32Array(this.anR.fftSize);
+    this.fdL = new Float32Array(this.anL.frequencyBinCount); this.fdR = new Float32Array(this.anR.frequencyBinCount);
     if (settings.outputDevice && ctx.setSinkId) { try { await ctx.setSinkId(settings.outputDevice); } catch (err) { console.warn('Ausgabegerät nicht verfügbar', err); } }
     if (ctx.state !== 'running') await ctx.resume();
     this.settings(settings);

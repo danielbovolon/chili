@@ -1,6 +1,6 @@
 /* Chili — Projektmodell */
-import { makeStep, masterDefaults, collideDefaults, ripDefaults, NOTE_NAMES, STEP_DEFS } from './params.js';
-import { LAYERS, layerDefaults } from './layers.js';
+import { makeStep, masterDefaults, collideDefaults, ripDefaults, macroDefaults, chaosDefaults, mfDefaults, NOTE_NAMES, STEP_DEFS, STEP_DEF_MAP } from './params.js';
+import { LAYERS, LAYER_MAP, layerDefaults } from './layers.js';
 
 export const uid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
 
@@ -21,9 +21,9 @@ export function newProject(name = 'Neues Projekt', demo = true) {
   }
   return {
     version: 1, id: uid(), name, created: Date.now(), updated: Date.now(),
-    transport: { tempoMode: 'bpm', bpm: 120, hz: 2, note: 'A', octave: 4, length: 16, division: '1/16', swing: 0 },
+    transport: { tempoMode: 'bpm', bpm: 120, hz: 2, note: 'A', octave: 4, length: 16, division: '1/16', swing: 0, direction: 'fwd' },
     steps, slices: [], samples: [],
-    collide: collideDefaults(), rip: ripDefaults(), master: masterDefaults(), layers: layerDefaults(),
+    collide: collideDefaults(), rip: ripDefaults(), master: masterDefaults(), layers: layerDefaults(), macros: macroDefaults(), chaos: chaosDefaults(),
   };
 }
 
@@ -36,7 +36,9 @@ export function normalizeProject(p) {
   out.collide = { ...base.collide, ...(p.collide || {}) };
   out.rip = { ...base.rip, ...(p.rip || {}) };
   const m = p.master || {};
-  out.master = { comp: { ...base.master.comp, ...(m.comp || {}) }, delay: { ...base.master.delay, ...(m.delay || {}) }, verb: { ...base.master.verb, ...(m.verb || {}) }, fader: m.fader ?? base.master.fader };
+  out.master = { comp: { ...base.master.comp, ...(m.comp || {}) }, delay: { ...base.master.delay, ...(m.delay || {}) }, verb: { ...base.master.verb, ...(m.verb || {}) }, filter: { ...mfDefaults(), ...(m.filter || {}) }, fader: m.fader ?? base.master.fader };
+  out.macros = { ...macroDefaults(), ...(p.macros || {}) };
+  out.chaos = { ...chaosDefaults(), ...(p.chaos || {}) };
   out.slices = p.slices || []; out.samples = p.samples || [];
   const ld = layerDefaults(), pl = p.layers || {};
   out.layers = Object.fromEntries(Object.entries(ld).map(([k, v]) => [k, { ...v, ...(pl[k] || {}) }]));
@@ -63,7 +65,8 @@ export function engineState(p, settings) {
   let over = null;
   for (const l of LAYERS) if (l.bypass && p.layers && p.layers[l.id] && !p.layers[l.id].on) over = { ...(over || {}), ...l.bypass };
   const steps = over ? p.steps.map((s) => ({ ...s, ...over })) : p.steps;
-  return { bpm: tempoBpm(t, settings), division: t.division, swing: t.swing, len: t.length, steps, slices: p.slices, collide: p.collide, rip, master: p.master };
+  return { bpm: tempoBpm(t, settings), division: t.division, swing: t.swing, len: t.length, direction: t.direction || 'fwd', steps, slices: p.slices, collide: p.collide, rip, master: p.master,
+    macros: p.macros, chaos: { ...p.chaos, keys: chaosKeys(p.chaos.targets) } };
 }
 
 export function randomizeStep(s, nSlices) {
@@ -79,3 +82,20 @@ export function randomizeStep(s, nSlices) {
   return s;
 }
 export function resetStep(s) { const d = makeStep(); for (const def of STEP_DEFS) s[def.k] = d[def.k]; return s; }
+
+/** Parameter-Beschreibungen für den Chaos-Modulator in der Engine */
+const ckCache = new Map();
+export function chaosKeys(targets = []) {
+  const sig = targets.join(','); if (ckCache.has(sig)) return ckCache.get(sig);
+  const keys = [];
+  if (targets.includes('gate')) keys.push({ k: 'on', t: 'tog' });
+  for (const id of targets) {
+    const l = LAYER_MAP[id]; if (!l) continue;
+    for (const k of l.keys) {
+      if (k === 'source' || k === 'ripWeight') continue;
+      const d = STEP_DEF_MAP[k];
+      keys.push(d.t === 'knob' ? { k, t: 'n', min: d.min, max: d.max, c: d.c, int: !!d.int } : d.t === 'sel' ? { k, t: 'sel', o: d.o.map((x) => x[0]) } : { k, t: 'tog' });
+    }
+  }
+  ckCache.set(sig, keys); return keys;
+}

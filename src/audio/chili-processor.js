@@ -211,7 +211,7 @@ class FDN {
 
 /* ============================================================== VOICE */
 // Indizes der interpolierten Control-Werte
-const C_RATE = 0, C_F1 = 1, C_F2 = 2, C_G = 3, C_LV = 4, C_PL = 5, C_PR = 6, C_PAL = 7, C_PAR = 8, C_FLL = 9, C_FLR = 10, C_CHL = 11, C_CHR = 12, C_N = 13;
+const C_RATE = 0, C_F1 = 1, C_F2 = 2, C_G = 3, C_LV = 4, C_PL = 5, C_PR = 6, C_PAL = 7, C_PAR = 8, C_FLL = 9, C_FLR = 10, C_CHL = 11, C_CHR = 12, C_RC = 13, C_RG = 14, C_N = 15;
 const MT = new Float64Array(5);
 
 class Voice {
@@ -240,7 +240,7 @@ class Voice {
       const sm = E.samples.get(sl.sampleId); if (!sm) return false;
       const n = sm.L.length, s0 = Math.floor(clamp(sl.a, 0, 1) * n), s1 = Math.floor(clamp(sl.b, 0, 1) * n);
       if (s1 - s0 < 32) return false;
-      this.L = sm.L; this.R = sm.R; this.s0 = s0; this.s1 = s1;
+      this.L = sm.L; this.R = sm.R; this.s0 = s0; this.s1 = s1; this.sid = sl.sampleId;
       this.rev = !!s.reverse !== !!o.reverse;
       const off = Math.floor(clamp(s.start || 0, 0, 0.95) * (s1 - s0));
       this.pos = this.rev ? s1 - 2 - off : s0 + off;
@@ -250,7 +250,7 @@ class Voice {
       this.w1 = W_IDX[s.osc1] ?? 2; this.w2 = W_IDX[s.osc2] ?? 3;
       this.o2r = Math.pow(2, ((s.osc2Semi || 0) + (s.osc2Fine || 0) / 100) / 12);
       this.ph1 = 0; this.ph2 = 0; this.ph3 = 0;
-      this.oMix = s.oscMix ?? 0.5; this.sub = s.sub || 0; this.noise = s.noise || 0;
+      this.oMix = s.oscMix ?? 0.5; this.sub = s.sub || 0; this.noise = s.noise || 0; this.sid = null;
     }
     this.srcOn = true; this.active = true; this.t = 0; this.killN = 0; this.kill = 0; this.silent = 0;
     this.serial = E.serial++; this.step = o.step;
@@ -274,6 +274,10 @@ class Voice {
     this.panMD = s.panModDepth || 0; this.panMR = s.panModRate; this.panMS = s.panModShape;
     this.apD = s.autopan || 0; this.apHz = 1 / ((SYNC[s.autopanSync] || 0.25) * E.wholeSec); this.apPh = 0;
     this.lPan.reset(0, this.rng);
+    // Surround (Tiefe vorne→hinten, Orbit um den Hörer) und Spread (Stereobreite)
+    this.dep = clamp(s.depth || 0, 0, 1); this.orb = clamp(s.orbit || 0, 0, 1); this.orbHz = s.orbitRate || 0.25; this.orbPh = rng.next();
+    this.sur = this.dep > 0 || this.orb > 0; this.rlL = this.rlR = 0; this.px = this.pan0; this.py = this.dep;
+    this.spr = s.spread ?? 1;
     // Tremolo / Pitch-Mod
     this.trD = s.tremDepth || 0; this.trR = s.tremRate; this.trS = s.tremShape; this.lTrem.reset(0, this.rng);
     this.pmD = s.pmDepth || 0; this.pmR = s.pmRate; this.pmS = s.pmShape; this.lPm.reset(0, this.rng);
@@ -354,7 +358,14 @@ class Voice {
     let p = this.pan0 + mPan;
     if (this.panMD > 0) p += this.panMD * this.lPan.step(this.panMR * dtk, this.panMS, rng);
     if (this.apD > 0) { this.apPh += this.apHz * dtk; this.apPh -= Math.floor(this.apPh); p += this.apD * Math.sin(TAU * this.apPh); }
-    p = clamp(p, -1, 1);
+    if (this.sur) {
+      let dE = this.dep;
+      if (this.orb > 0) { this.orbPh += this.orbHz * dtk; this.orbPh -= Math.floor(this.orbPh); const th = TAU * this.orbPh; p += this.orb * Math.sin(th); dE = clamp(dE + this.orb * (0.5 - 0.5 * Math.cos(th)), 0, 1); }
+      // Hinten: Höhen dunkler (Kopfschatten/Ohrmuschel), leiser, breiter
+      const fc = Math.min(0.45 * sr, 20000 * Math.pow(2, -dE * 2.3));
+      this.setC(C_RC, 1 - Math.exp((-TAU * fc) / sr), snap); this.setC(C_RG, 1 - 0.28 * dE, snap); this.py = dE;
+    }
+    p = clamp(p, -1, 1); this.px = p;
     this.pS = snap ? p : this.pS + (p - this.pS) * this.smK;
     panGains(this.pS, E.panLaw); this.setC(C_PL, PG[0], snap); this.setC(C_PR, PG[1], snap);
     // Phaser
@@ -403,12 +414,13 @@ class Voice {
           let v = (o1 + (o2 - o1) * this.oMix) * 0.7;
           if (this.sub > 0) v += Math.sin(TAU * this.ph3) * this.sub * 0.55;
           if (this.noise > 0) v += this.rng.bi() * this.noise * 0.3;
+          if (this.spr > 1) { const sd = (o1 - o2) * 0.35 * (this.spr - 1); xl = v + sd; xr = v - sd; } else xl = xr = v;
           this.ph1 += f1 / sr; this.ph1 -= Math.floor(this.ph1);
           this.ph2 += f2 / sr; this.ph2 -= Math.floor(this.ph2);
           this.ph3 += (0.5 * f1) / sr; this.ph3 -= Math.floor(this.ph3);
-          xl = xr = v;
         }
       }
+      if (this.spr !== 1 && this.src === 0) { const m = (xl + xr) * 0.5, d = (xl - xr) * 0.5 * this.spr; xl = m + d; xr = m - d; }
       /* ---- Filter (TPT-SVF) */
       if (this.fT) {
         const g = cv[C_G], k = this.fk, a1 = 1 / (1 + g * (g + k)), a2 = g * a1, a3 = g * a2;
@@ -451,6 +463,11 @@ class Voice {
       }
       /* ---- Pan */
       L = xl * cv[C_PL]; R = xr * cv[C_PR];
+      if (this.sur) {
+        const c = cv[C_RC], g = cv[C_RG]; this.rlL += c * (L - this.rlL); this.rlR += c * (R - this.rlR);
+        const m = (this.rlL + this.rlR) * 0.5, d = (this.rlL - this.rlR) * 0.5 * (1 + (1 - g) * 2.2);
+        L = (m + d) * g; R = (m - d) * g;
+      }
       } // Ende: Tail-Fast-Path (nach Release nur noch Delay/Reverb)
       /* ---- Delay */
       if (this.dM > 0) {
@@ -711,6 +728,141 @@ class Lufs {
   value() { const ms = Math.max(0, this.sum) / this.n; return ms > 1e-12 ? -0.691 + 10 * Math.log10(ms) : -120; }
 }
 
+/* ============================================================== ADAA-Sättigung */
+/* tanh mit Antiderivative-Antialiasing 1. Ordnung (Parker/Bilbao): unterdrückt die Aliasing-Produkte der Verzerrung
+ * ohne Oversampling. F(x) = ln cosh x. */
+const LN2 = 0.6931471805599453;
+const lcosh = (x) => { const a = x < 0 ? -x : x; return a > 12 ? a - LN2 : Math.log(Math.cosh(x)); };
+function adaa(x, st, i) {
+  const x1 = st[i]; st[i] = x; const d = x - x1;
+  return d > 1e-5 || d < -1e-5 ? (lcosh(x) - lcosh(x1)) / d : Math.tanh(0.5 * (x + x1));
+}
+function toN(d, v, max) {
+  const mn = d.min; if (max <= mn) return 0;
+  if (d.c === 'log') return Math.log(v / mn) / Math.log(max / mn);
+  if (d.c === 'cub') return Math.cbrt((v - mn) / (max - mn));
+  return (v - mn) / (max - mn);
+}
+function fromN(d, n, max) {
+  let v; if (d.c === 'log') v = d.min * Math.pow(max / d.min, n); else if (d.c === 'cub') v = d.min + (max - d.min) * n * n * n; else v = d.min + (max - d.min) * n;
+  return d.int ? Math.round(v) : v;
+}
+function lfoAt(shape, ph, a, b) {
+  switch (shape) {
+    case 'tri': return ph < 0.5 ? 4 * ph - 1 : 3 - 4 * ph;
+    case 'square': return ph < 0.5 ? 1 : -1;
+    case 'saw': return 2 * ph - 1;
+    case 'sh': return a;
+    case 'smooth': return a + (b - a) * (0.5 - 0.5 * Math.cos(PI * ph));
+    default: return Math.sin(TAU * ph);
+  }
+}
+
+/* ============================================================== MASTER-FILTER */
+const MF_T = { lp: 1, bp: 2, hp: 3, notch: 4, peak: 5, lshelf: 6, hshelf: 7, comb: 8, combn: 9, formant: 10 };
+const VOWELS = [[730, 1090, 2440], [530, 1840, 2480], [270, 2290, 3010], [570, 840, 2410], [300, 870, 2240]];
+const FGAIN = [1, 0.5, 0.28];
+/* ZDF-SVF-Kaskade bis 48 dB/Okt (Butterworth-Q pro Stufe, Resonanz in der letzten), Peak/Shelf (Simper),
+ * Comb ±, Formant (3 Bandpässe, Vokal-Morph), Drive mit ADAA, Hüllkurvenfolger, LFO (frei/sync), Stereo-Phase. */
+class MFilter {
+  constructor(sr) {
+    this.sr = sr; this.t = 1; this.n = 2; this.on = false; this.mixC = 0; this.kc = 0; this.wasOn = false;
+    this.z = [new Float64Array(8), new Float64Array(8)]; this.fz = [new Float64Array(6), new Float64Array(6)];
+    const cn = pow2(Math.ceil(sr / 16) + 8); this.cb = [new Float32Array(cn), new Float32Array(cn)]; this.cm = cn - 1; this.cw = 0;
+    this.cur = new Float64Array(10); this.inc = new Float64Array(10); this.kb = new Float64Array(4);
+    this.ds = new Float64Array(2); this.env = 0; this.lph = 0; this.la = 0; this.lb = 0; this.rng = new Rng(4242);
+    this.fcL = 1000; this.fcR = 1000; this.p = null; this.first = true;
+  }
+  set(p, wholeSec) {
+    if (!p) return; this.p = p;
+    this.t = MF_T[p.type] || 1; this.n = clamp(p.slope | 0, 1, 4); this.on = !!p.on;
+    for (let i = 0; i < this.n; i++) this.kb[i] = 2 * Math.cos((PI * (2 * i + 1)) / (4 * this.n));
+    this.dg = p.drive > 0 ? Math.pow(10, p.drive / 20) : 1; this.dc = 1 / Math.sqrt(this.dg);
+    this.outG = Math.pow(10, (p.out || 0) / 20); this.A = Math.pow(10, (p.gain || 0) / 40);
+    this.eA = Math.exp(-1 / (Math.max(0.5, p.envAtk) * 0.001 * this.sr)); this.eR = Math.exp(-1 / (Math.max(5, p.envRel) * 0.001 * this.sr));
+    this.lHz = p.lfoSync && p.lfoSync !== 'off' ? 1 / ((SYNC[p.lfoSync] || 0.25) * wholeSec) : p.lfoRate;
+  }
+  ctl(snap) {
+    const p = this.p, sr = this.sr, dt = KR / sr;
+    let ph = this.lph + this.lHz * dt; if (ph >= 1) { ph -= Math.floor(ph); this.la = this.lb; this.lb = this.rng.bi(); } this.lph = ph;
+    const lL = lfoAt(p.lfoShape, ph, this.la, this.lb), phR = (ph + p.stereo * 0.5) % 1, lR = lfoAt(p.lfoShape, phR, this.la, this.lb);
+    const eo = p.envAmt * Math.min(1, this.env * 1.6);
+    const oL = eo + p.lfoDepth * lL - p.spreadOct * 0.5, oR = eo + p.lfoDepth * lR + p.spreadOct * 0.5;
+    const fL = clamp(p.cutoff * Math.pow(2, oL), 16, 0.45 * sr), fR = clamp(p.cutoff * Math.pow(2, oR), 16, 0.45 * sr);
+    this.fcL = fL; this.fcR = fR;
+    const T = this.t, tg = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    if (T === 8 || T === 9) { tg[0] = clamp(sr / fL, 2, this.cm - 4); tg[1] = clamp(sr / fR, 2, this.cm - 4); }
+    else if (T === 10) {
+      const v = clamp(p.vowel, 0, 4), i0 = Math.min(3, Math.floor(v)), fr = v - i0, sh = clamp(Math.sqrt(p.cutoff / 1000), 0.3, 3.5);
+      for (let k = 0; k < 3; k++) {
+        const f = (VOWELS[i0][k] + (VOWELS[i0 + 1][k] - VOWELS[i0][k]) * fr) * sh;
+        const mL = Math.pow(2, oL * 0.5), mR = Math.pow(2, oR * 0.5);
+        tg[2 + k] = Math.tan((PI * clamp(f * mL, 30, 0.45 * sr)) / sr); tg[5 + k] = Math.tan((PI * clamp(f * mR, 30, 0.45 * sr)) / sr);
+      }
+    } else {
+      let gL = Math.tan((PI * fL) / sr), gR = Math.tan((PI * fR) / sr);
+      if (T === 6) { gL /= Math.sqrt(this.A); gR /= Math.sqrt(this.A); } else if (T === 7) { gL *= Math.sqrt(this.A); gR *= Math.sqrt(this.A); }
+      tg[0] = gL; tg[1] = gR;
+    }
+    for (let i = 0; i < 8; i++) { if (snap) { this.cur[i] = tg[i]; this.inc[i] = 0; } else this.inc[i] = (tg[i] - this.cur[i]) / KR; }
+  }
+  chan(x, c) {
+    const T = this.t, p = this.p, z = this.z[c], cur = this.cur;
+    if (T <= 4) {
+      const g = cur[c], n = this.n; let y = x;
+      for (let i = 0; i < n; i++) {
+        let k = this.kb[i]; if (i === n - 1) k *= 1 - p.res * 0.985;
+        const a1 = 1 / (1 + g * (g + k)), a2 = g * a1, a3 = g * a2, j = i * 2;
+        const v3 = y - z[j + 1], v1 = a1 * z[j] + a2 * v3, v2 = z[j + 1] + a2 * z[j] + a3 * v3;
+        z[j] = 2 * v1 - z[j]; z[j + 1] = 2 * v2 - z[j + 1];
+        y = T === 1 ? v2 : T === 2 ? k * v1 : T === 3 ? y - k * v1 - v2 : y - k * v1;
+      }
+      return y;
+    }
+    if (T <= 7) {
+      const g = cur[c], A = this.A, k = 1 / (0.5 + p.res * 9.5);
+      const kk = T === 5 ? k / A : k;
+      const a1 = 1 / (1 + g * (g + kk)), a2 = g * a1, a3 = g * a2;
+      const v3 = x - z[1], v1 = a1 * z[0] + a2 * v3, v2 = z[1] + a2 * z[0] + a3 * v3;
+      z[0] = 2 * v1 - z[0]; z[1] = 2 * v2 - z[1];
+      if (T === 5) return x + kk * (A * A - 1) * v1;
+      if (T === 6) return x + k * (A - 1) * v1 + (A * A - 1) * v2;
+      return A * A * x + k * (1 - A) * A * v1 + (1 - A * A) * v2;
+    }
+    if (T <= 9) {
+      const b = this.cb[c], fb = (T === 8 ? 1 : -1) * (0.3 + 0.68 * p.res);
+      const y = x + fb * hermRead(b, this.cm, this.cw, cur[c]);
+      b[this.cw] = y; return y * (1 - Math.abs(fb) * 0.75);
+    }
+    const fz = this.fz[c], k = 0.25 - p.res * 0.2; let sum = 0;
+    for (let f = 0; f < 3; f++) {
+      const g = cur[2 + f + c * 3], a1 = 1 / (1 + g * (g + k)), a2 = g * a1, a3 = g * a2, j = f * 2;
+      const v3 = x - fz[j + 1], v1 = a1 * fz[j] + a2 * v3, v2 = fz[j + 1] + a2 * fz[j] + a3 * v3;
+      fz[j] = 2 * v1 - fz[j]; fz[j + 1] = 2 * v2 - fz[j + 1]; sum += FGAIN[f] * k * v1;
+    }
+    return sum * 1.6;
+  }
+  reset() { this.z[0].fill(0); this.z[1].fill(0); this.fz[0].fill(0); this.fz[1].fill(0); this.cb[0].fill(0); this.cb[1].fill(0); this.ds.fill(0); this.env = 0; }
+  /** Liefert FO; gibt false zurück, wenn komplett im Bypass (bit-transparent) */
+  process(l, r, mK) {
+    const tgt = this.on ? clamp(this.p.mix, 0, 1) : 0;
+    if (!this.on && this.mixC < 1e-6) { this.mixC = 0; this.wasOn = false; return false; }
+    if (this.on && !this.wasOn) { this.reset(); this.wasOn = true; this.first = true; }
+    this.mixC += (tgt - this.mixC) * mK;
+    const a = Math.max(l < 0 ? -l : l, r < 0 ? -r : r); this.env = a > this.env ? a + (this.env - a) * this.eA : a + (this.env - a) * this.eR;
+    if (--this.kc <= 0) { this.ctl(this.first); this.first = false; this.kc = KR; }
+    let xl = l, xr = r;
+    if (this.dg > 1) { xl = adaa(l * this.dg, this.ds, 0) * this.dc; xr = adaa(r * this.dg, this.ds, 1) * this.dc; }
+    let yl = this.chan(xl, 0), yr = this.chan(xr, 1);
+    this.cw = (this.cw + 1) & this.cm;
+    for (let i = 0; i < 8; i++) this.cur[i] += this.inc[i];
+    yl *= this.outG; yr *= this.outG;
+    if (yl !== yl || yr !== yr || Math.abs(yl) > 1e4) { this.reset(); yl = yr = 0; } // Sicherheitsnetz
+    FO[0] = l + (yl - l) * this.mixC; FO[1] = r + (yr - r) * this.mixC;
+    return true;
+  }
+}
+
 /* ============================================================== PROCESSOR */
 class ChiliProcessor extends AudioWorkletProcessor {
   constructor(opts) {
@@ -728,6 +880,14 @@ class ChiliProcessor extends AudioWorkletProcessor {
     this.playing = false; this.stepI = 0; this.tA = 0;
     this.C = { on: false, ratio: 1.5, energy: 0.5, accel: 0.2, beamB: 0.5, scatter: 7, spread: 120, level: 0.8 };
     this.posA = 0; this.nA = 0; this.posB = 8; this.nB = 8; this.sf = 1; this.justC = false;
+    // Makros, Laufrichtung, Ratchets/Mikro-Timing (Pending-Trigger), Chaos-Modulator, Heat
+    this.M = { heat: 0, density: 0.5, warp: 0, tone: 0, pitch: 0, length: 1, space: 0.5, chaos: 0 };
+    this.dir = 'fwd'; this.ppDir = 1; this.stepCount = 0;
+    this.pend = []; for (let i = 0; i < 64; i++) this.pend.push({ on: false, at: 0, i: 0, vel: 1, gm: 1, s: {} }); this.pendN = 0;
+    this.scr = {};
+    this.ch = { on: false, depth: 0.5, rate: 1, prob: 1, rand: 1, shape: 0, mode: 'rel', lock: 0, loop: 8 };
+    this.chKeys = []; this.chSig = ''; this.chSt = []; this.chRng = new Rng(0x51ce);
+    this.heatC = 0; this.hs = new Float64Array(2); this.mf = new MFilter(sr); this.baseMix = [0, 0, 0];
     this.rip = new Rip(sr);
     this.comp = new Comp(sr); this.mdel = new MDelay(sr); this.mverb = new MVerb(sr); this.lim = new Limiter(sr); this.lufs = new Lufs(sr);
     this.mixC = [0, 0, 0]; this.mixT = [0, 0, 0]; this.mK = 1 - Math.exp(-1 / (0.02 * sr));
@@ -739,6 +899,7 @@ class ChiliProcessor extends AudioWorkletProcessor {
     this.cap = { armed: false, active: false, mode: 'free', src: 'input', ch: 'stereo', passes: 1, countIn: 0, remaining: 0, compN: 0, skip: 0,
       ending: false, extraLeft: 0, endFrom: 0, from: 0, to: -1, stopping: false, stopReq: false, L: new Float32Array(16384), R: new Float32Array(16384), i: 0, total: 0, maxN: sr * 600 };
     this.inCh = 'stereo'; this.monitor = false; this.inPk = [0, 0]; this.inOver = false; this.inL = null; this.inR = null; this.curA = 0;
+    this.shedT = 0; this.shed = 0; this.lAvg = 0;
     this.rec = false; this.recL = new Float32Array(16384); this.recR = new Float32Array(16384); this.recI = 0;
     this.port.onmessage = (e) => this.onMsg(e.data);
     this.port.postMessage({ type: 'ready', sr });
@@ -756,9 +917,9 @@ class ChiliProcessor extends AudioWorkletProcessor {
       case 'sample': this.samples.set(m.id, { L: m.L, R: m.R }); break;
       case 'removeSample': this.samples.delete(m.id); break;
       case 'state': this.applyState(m.state); break;
-      case 'play': this.setPlaying(m.on); break;
+      case 'play': this.setPlaying(m.on); if (!m.on) { for (const p of this.pend) p.on = false; this.pendN = 0; } break;
       case 'audition': this.trigger(m.step, { force: true }); break;
-      case 'panic': for (const v of this.voices) v.active = false; for (const g of this.grains) g.active = false; break;
+      case 'panic': for (const v of this.voices) v.active = false; for (const g of this.grains) g.active = false; for (const p of this.pend) p.on = false; this.pendN = 0; break;
       case 'settings':
         this.panLaw = m.panLaw || 'm3'; this.limOn = m.limiter !== false; this.lim.ceil = dbLin(m.ceiling ?? -0.3); this.refA = m.refA || 440; break;
       case 'rec':
@@ -791,6 +952,14 @@ class ChiliProcessor extends AudioWorkletProcessor {
     this.swing = clamp(s.swing || 0, 0, 0.5);
     const bpm = clamp(s.bpm || 120, 10, 999), div = DIV[s.division] || 1 / 16;
     if (bpm !== this.bpm || div !== this.div) { this.bpm = bpm; this.div = div; this.calcTiming(); }
+    if (s.macros) Object.assign(this.M, s.macros);
+    this.dir = s.direction || 'fwd';
+    if (s.chaos) {
+      const { keys, ...cs } = s.chaos; Object.assign(this.ch, cs);
+      const ks = keys || [], sig = ks.map((k) => k.k).join(',');
+      if (sig !== this.chSig) { this.chSig = sig; this.chKeys = ks; this.chSt = ks.map(() => ({ prev: 0, next: 0, cur: 0, cnt: 0, hist: new Float64Array(32), hn: 0, hp: 0 })); }
+      if (cs.seed !== undefined && cs.seed !== this.chSeed) { this.chSeed = cs.seed; this.chRng = new Rng(((cs.seed | 0) * 2654435761) >>> 0 || 1); }
+    }
     const c = s.collide || {};
     const wasOn = this.C.on; Object.assign(this.C, c);
     if (this.playing && c.on && !wasOn) this.initCollide(this.stepI);
@@ -802,13 +971,15 @@ class ChiliProcessor extends AudioWorkletProcessor {
     const M = s.master;
     if (M) {
       this.comp.set(M.comp); this.mdel.set(M.delay, this.wholeSec); this.mverb.set(M.verb);
-      this.mixT[0] = clamp(M.comp.mix, 0, 1); this.mixT[1] = clamp(M.delay.mix, 0, 1); this.mixT[2] = clamp(M.verb.mix, 0, 1);
+      const sp = Math.max(0, this.M.space - 0.5); // Makro „Raum": mehr Master-Delay/-Hall
+      this.mixT[0] = clamp(M.comp.mix, 0, 1); this.mixT[1] = clamp(M.delay.mix + sp * 0.6, 0, 1); this.mixT[2] = clamp(M.verb.mix + sp * 0.8, 0, 1);
+      this.mf.set(M.filter, this.wholeSec);
       const pos = clamp(M.fader, 0, 1); this.fgT = pos * pos; // max. 0 dB
     }
   }
 
   setPlaying(on) {
-    if (on && !this.playing) { this.stepI = 0; this.tA = 0; this.initCollide(0); this.sf = 1; }
+    if (on && !this.playing) { this.stepI = 0; this.tA = 0; this.initCollide(0); this.sf = 1; this.ppDir = 1; this.stepCount = 0; }
     this.playing = on;
   }
   initCollide(at) { this.posA = at; this.nA = at; this.posB = at + this.len / 2; this.nB = this.posB; this.justC = false; }
@@ -836,8 +1007,9 @@ class ChiliProcessor extends AudioWorkletProcessor {
       while (this.tA <= 1e-7 && guard++ < 8) {
         const st = this.stepI; this.capTick(st); this.trigger(st, {});
         const s = this.steps[st]; this.rip.tick(this, st, s ? s.ripWeight ?? 0.5 : 0.5, N);
-        this.tA += this.stepDur * (st % 2 === 0 ? 1 + this.swing : 1 - this.swing);
-        this.stepI = (st + 1) % N; this.port.postMessage({ type: 'tick', step: st, t: currentTime });
+        this.tA += this.stepDur * ((this.stepCount++ & 1) === 0 ? 1 + this.swing : 1 - this.swing);
+        this.chaosTick();
+        this.stepI = this.nextStep(st, N); this.port.postMessage({ type: 'tick', step: st, t: currentTime });
       }
       return;
     }
@@ -845,6 +1017,7 @@ class ChiliProcessor extends AudioWorkletProcessor {
     while (this.posA >= this.nA - 1e-7 && guard++ < 8) {
       const st = mod(this.nA, N); this.capTick(st); this.trigger(st, {});
       const s = this.steps[st]; this.rip.tick(this, st, s ? s.ripWeight ?? 0.5 : 0.5, N);
+      this.chaosTick();
       this.nA += 1; this.port.postMessage({ type: 'tick', step: st, t: currentTime });
     }
     guard = 0;
@@ -862,12 +1035,110 @@ class ChiliProcessor extends AudioWorkletProcessor {
     else if (gap > 0.25 && gap < N - 0.25) this.justC = false;
   }
 
-  trigger(i, o) {
-    const s = this.steps[i]; if (!s) return;
-    if (!o.force) { if (!s.on) return; if ((s.prob ?? 1) < 1 && this.rng.next() >= s.prob) return; }
-    const v = this.allocVoice(); o.step = i;
-    if (!v.start(this, s, o)) v.active = false;
+  nextStep(st, N) {
+    const r = this.rng;
+    switch (this.dir) {
+      case 'rev': return (st - 1 + N) % N;
+      case 'pp': { if (N < 2) return 0; let n = st + this.ppDir; if (n >= N) { this.ppDir = -1; n = N - 2; } else if (n < 0) { this.ppDir = 1; n = 1; } return n; }
+      case 'rnd': return (r.next() * N) | 0;
+      case 'brown': { const x = r.next(); return (st + (x < 0.55 ? 1 : x < 0.8 ? 0 : -1) + N) % N; }
+      case 'skip': return (st + 1 + (r.next() < 0.3 ? 1 + ((r.next() * 2) | 0) : 0)) % N;
+      default: return (st + 1) % N;
+    }
   }
+
+  /* ---- Chaos-Zufallsmodulator: pro Ziel-Parameter ein eigener Zufallskanal, getaktet in Steps */
+  chEff() { const c = this.ch, b = c.on ? clamp(c.depth, 0, 1) : 0; return clamp(b + this.M.chaos * (1 - b), 0, 1); }
+  chaosTick() {
+    if (!this.chSt.length || this.chEff() <= 0) return;
+    const c = this.ch, rate = Math.max(1, c.rate | 0), r = this.chRng, loop = clamp(c.loop | 0, 2, 32);
+    const sh = clamp(c.shape, 0, 3), s0 = Math.floor(Math.min(2.999, sh)), sf = sh - s0;
+    const ease = (k, t) => (k <= 0 ? 1 : k === 1 ? t : k === 2 ? 0.5 - 0.5 * Math.cos(PI * t) : 1 - (1 - t) * (1 - t) * (1 - t));
+    for (const st of this.chSt) {
+      st.cnt++;
+      if (st.cnt >= rate) {
+        st.cnt = 0; st.prev = st.next;
+        if (r.next() < c.prob) {
+          let nv;
+          if (st.hn >= loop && r.next() < c.lock) nv = st.hist[st.hp % loop];
+          else nv = clamp(st.prev + c.rand * (r.bi() - st.prev), -1, 1);
+          st.next = nv; st.hist[st.hp % loop] = nv; st.hp = (st.hp + 1) % loop; if (st.hn < loop) st.hn++;
+        }
+      }
+      const t = (st.cnt + 1) / rate, e = ease(s0, t) + (ease(s0 + 1, t) - ease(s0, t)) * sf;
+      st.cur = st.prev + (st.next - st.prev) * e;
+    }
+  }
+  applyChaos(s, eff) {
+    const ks = this.chKeys, sts = this.chSt, abs = this.ch.mode === 'abs';
+    for (let j = 0; j < ks.length; j++) {
+      const d = ks[j], v = sts[j].cur, k = d.k;
+      if (d.t === 'n') {
+        const max = k === 'slice' ? Math.max(0, this.slices.length - 1) : d.max; if (max <= d.min) continue;
+        const n0 = clamp(toN(d, s[k], max), 0, 1);
+        const n = abs ? n0 + ((v + 1) / 2 - n0) * eff : n0 + v * eff * 0.75;
+        s[k] = fromN(d, clamp(n, 0, 1), max);
+      } else if (d.t === 'sel') {
+        if (abs ? eff >= 0.5 : Math.abs(v) * eff > 0.35) s[k] = d.o[Math.min(d.o.length - 1, Math.floor(((v + 1) / 2) * d.o.length))];
+      } else if (d.t === 'tog') {
+        if (abs) { if (eff >= 0.5) s[k] = v > 0; } else if (v * eff > 0.5) s[k] = !s[k];
+      }
+    }
+  }
+  /* ---- Makros: alle neutral = keine Änderung */
+  macroApply(s, ghost, force) {
+    const M = this.M, r = this.rng;
+    if (M.pitch) s.pitch += M.pitch;
+    if (M.tone) s.cutoff = clamp(s.cutoff * Math.pow(2, M.tone * 3), 20, 20000);
+    if (M.heat > 0) { s.res = Math.min(1, s.res + M.heat * 0.35); s.fEnvAmt *= 1 + M.heat * 0.8; }
+    if (M.space !== 0.5) {
+      const k = M.space - 0.5;
+      if (k < 0) { const m = 1 + 2 * k; s.delayMix *= m; s.verbMix *= m; }
+      else { s.orbit = clamp((s.orbit || 0) + k * 0.9, 0, 1); s.spread = Math.min(2, (s.spread ?? 1) + k * 1.2); }
+    }
+    if (M.warp > 0 && !force) {
+      const w = M.warp; s.fine += r.bi() * w * 45; s.start = clamp(s.start + r.next() * w * 0.25, 0, 0.95);
+      s.gate *= 1 + r.bi() * w * 0.6; if (r.next() < w * 0.2) s.reverse = !s.reverse;
+    }
+    if (ghost) { s.gain -= 10; s.ratchet = 1; }
+    if (M.density > 0.5 && !force && !ghost && (s.ratchet || 1) <= 1 && r.next() < (M.density - 0.5) * 0.5) s.ratchet = 2 + ((r.next() * 3) | 0);
+  }
+
+  trigger(i, o) {
+    const s0 = this.steps[i]; if (!s0) return;
+    const s = this.scr; for (const k in s0) s[k] = s0[k];
+    const M = this.M, rng = this.rng, eff = this.chEff();
+    if (eff > 0 && this.chKeys.length) this.applyChaos(s, eff);
+    let ghost = false;
+    if (!o.force) {
+      if (!s.on) { if (M.density > 0.5 && rng.next() < (M.density - 0.5) * 1.1) ghost = true; else return; }
+      let pr = s.prob ?? 1; if (M.density < 0.5) pr *= M.density * 2;
+      if (pr < 1 && rng.next() >= pr) return;
+    }
+    this.macroApply(s, ghost, o.force);
+    const r = clamp(Math.round(s.ratchet || 1), 1, 8), rv = clamp(s.ratchVel || 0, -1, 1);
+    const sp = this.stepDur / r, gm = (o.gateMul || 1) * M.length / r;
+    const dl = !o.force && M.warp > 0 ? rng.next() * M.warp * 0.3 * this.stepDur : 0;
+    for (let k = 0; k < r; k++) {
+      const t = r > 1 ? k / (r - 1) : 1, f = Math.max(0.05, rv >= 0 ? 1 - rv * (1 - t) : 1 + rv * t);
+      const vel = (o.vel ?? 1) * f, at = dl + k * sp;
+      if (at < 1) this.startVoice(s, i, vel, gm, o.reverse);
+      else this.schedule(s, i, vel, gm, o.reverse, at);
+    }
+  }
+  startVoice(s, i, vel, gm, rev) {
+    const v = this.allocVoice();
+    if (!v.start(this, s, { step: i, vel, gateMul: gm, reverse: rev })) v.active = false;
+  }
+  schedule(s, i, vel, gm, rev, at) {
+    const p = this.pend.find((x) => !x.on); if (!p) return;
+    for (const k in s) p.s[k] = s[k];
+    p.on = true; p.at = at; p.i = i; p.vel = vel; p.gm = gm; p.rev = rev; this.pendN++;
+  }
+  firePend() {
+    for (const p of this.pend) if (p.on && p.at <= 1e-7) { p.on = false; this.pendN--; this.startVoice(p.s, p.i, p.vel, p.gm, p.rev); }
+  }
+  pendNext() { let m = Infinity; for (const p of this.pend) if (p.on && p.at < m) m = p.at; return m; }
   allocVoice() {
     let free = null, active = 0, oldest = null;
     for (const v of this.voices) {
@@ -973,24 +1244,44 @@ class ChiliProcessor extends AudioWorkletProcessor {
     while (a < N) {
       let seg = N - a;
       if (this.playing) { this.curA = a; this.fireDue(); const s = Math.max(1, Math.ceil(this.nextDt() - 1e-9)); if (s < seg) seg = s; }
+      if (this.pendN) { this.firePend(); const pn = this.pendNext(); if (pn < Infinity) { const s = Math.max(1, Math.ceil(pn - 1e-9)); if (s < seg) seg = s; } }
       const b = a + seg;
       for (const v of this.voices) if (v.active) v.render(this, bL, bR, a, b);
       for (const g of this.grains) if (g.active) g.render(bL, bR, a, b);
       if (this.rip.p.on || this.rip.active || this.rip.mixC > 1e-6) this.rip.process(bL, bR, a, b);
       if (this.playing) this.advance(seg);
+      if (this.pendN) for (const p of this.pend) if (p.on) p.at -= seg;
       a = b;
     }
     this.master(bL, bR, oL, oR, N);
     this.capture(oL, oR, N);
-    this.cpu += Date.now() - t0; this.cpuT += (N / this.sr) * 1000;
+    const el = Date.now() - t0, bms = (N / this.sr) * 1000;
+    this.cpu += el; this.cpuT += bms;
+    // CPU-Schutz: bei Dauerlast > 85 % die ältesten Ausklänge (Delay/Hall-Tails) klickfrei ausblenden statt Dropouts zu riskieren
+    this.lAvg = (this.lAvg || 0) + (el / bms - (this.lAvg || 0)) * 0.04;
+    if (this.lAvg > 0.85 && ++this.shedT >= 6) {
+      this.shedT = 0; let o = null;
+      for (const v of this.voices) if (v.active && !v.killN && (!o || (v.stage === 3) > (o.stage === 3) || ((v.stage === 3) === (o.stage === 3) && v.serial < o.serial))) o = v;
+      if (o) { o.killN = o.kill = Math.round(0.006 * this.sr); this.shed = (this.shed || 0) + 1; }
+    }
     return true;
   }
 
   master(bL, bR, oL, oR, N) {
-    const mc = this.mixC, mt = this.mixT, mK = this.mK, comp = this.comp, dl = this.mdel, vb = this.mverb, lim = this.lim, lu = this.lufs;
+    const mc = this.mixC, mt = this.mixT, mK = this.mK, comp = this.comp, mf = this.mf, dl = this.mdel, vb = this.mverb, lim = this.lim, lu = this.lufs;
+    const hT = this.M.heat, hs = this.hs;
+    const h0 = this.heatC, h1 = h0 + (hT - h0) * Math.min(1, N * this.mK), hInc = (h1 - h0) / N;
+    const g0 = h0 > 0 ? Math.pow(10, (h0 * 24) / 20) : 1, g1 = h1 > 0 ? Math.pow(10, (h1 * 24) / 20) : 1, gInc = (g1 - g0) / N;
+    const heatOn = h0 > 1e-5 || h1 > 1e-5; this.heatC = h1 < 1e-6 && hT === 0 ? 0 : h1;
     for (let n = 0; n < N; n++) {
       let l = bL[n], r = bR[n];
       if (this.monitor && this.inL) { l += this.inL[n]; r += this.inR[n]; }
+      if (heatOn) { // Heat: ADAA-Sättigung auf dem Sequencer-Bus, sanft eingeblendet
+        const hv = h0 + hInc * n, g = g0 + gInc * n, comp = 1 / Math.sqrt(g), w = Math.min(1, hv * 20);
+        const sl = adaa(l * g, hs, 0) * comp, sr2 = adaa(r * g, hs, 1) * comp;
+        l += (sl - l) * w; r += (sr2 - r) * w;
+      }
+      if (mf.process(l, r, mK)) { l = FO[0]; r = FO[1]; }
       mc[0] += (mt[0] - mc[0]) * mK; mc[1] += (mt[1] - mc[1]) * mK; mc[2] += (mt[2] - mc[2]) * mK;
       if (mc[0] > 1e-5) { const g = comp.gain(l, r), k = mc[0]; l += (l * g - l) * k; r += (r * g - r) * k; }
       else comp.gr *= 0.999;
@@ -1012,7 +1303,10 @@ class ChiliProcessor extends AudioWorkletProcessor {
       this.port.postMessage({
         type: 'meter', pk: this.pk.slice(), over: this.over, lufs: lu.value(), gr: this.comp.gr, lim: 20 * Math.log10(Math.max(1e-6, this.limMin)),
         inPk: this.inPk.slice(), inOver: this.inOver, capN: this.cap.active ? this.cap.total : -1,
-        voices, cpu: this.cpuT > 0 ? this.cpu / this.cpuT : 0, posA: this.posA, posB: this.posB, sf: this.sf, collide: this.C.on, playing: this.playing,
+        vz: this.voices.filter((v) => v.active).map((v) => ({ s: v.src === 0 ? v.sid : null, f: v.src === 0 && v.L ? v.pos / v.L.length : 0, e: v.env * v.vel, x: v.px, y: v.py || 0, st: v.step })),
+        ch: this.chEff() > 0 ? this.chSt.slice(0, 16).map((c) => c.cur) : null,
+        mf: mf.on || mf.mixC > 0.001 ? { l: mf.fcL, r: mf.fcR, e: mf.env } : null, heat: this.heatC,
+        shed: this.shed || 0, voices, cpu: this.cpuT > 0 ? this.cpu / this.cpuT : 0, posA: this.posA, posB: this.posB, sf: this.sf, collide: this.C.on, playing: this.playing,
         rip: rp.p.on ? { x: Array.from(rp.x), y: Array.from(rp.y), active: rp.active && !rp.ending, events: rp.events, learns: rp.learns, rBar: rp.rBar } : null,
       });
       this.pk[0] = this.pk[1] = 0; this.inPk[0] = this.inPk[1] = 0; this.inOver = false; this.over = false; this.limMin = 1; this.cpu = 0; this.cpuT = 0;

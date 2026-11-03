@@ -4,7 +4,8 @@
  *  2. Aliasing Synth: Sägezahn auf C8 → Energie außerhalb der Harmonischen
  *  3. Aliasing Sampler: 15-kHz-Sinus +12 st hochgepitcht (→ 30 kHz > Nyquist) muss verschwinden
  *  4. Echtzeitfaktor (CPU) */
-import { makeStep, masterDefaults, collideDefaults, ripDefaults } from '../src/state/params.js';
+import { makeStep, masterDefaults, collideDefaults, ripDefaults, macroDefaults, chaosDefaults, MF_TYPES } from '../src/state/params.js';
+import { chaosKeys } from '../src/state/project.js';
 
 const SR = 48000;
 let Proc;
@@ -123,6 +124,73 @@ for (const lobes of [12, 16, 24]) {
   const start = Math.round(L[0] * 1e6), expected = Math.ceil(16 * stepN) + comp; // Count-in 1 Durchlauf + Ausgleich
   ok(start === expected, `Sync-Start sample-genau nach Count-in + Latenzausgleich (Sample ${start}, erwartet ${expected})`);
   ok(msgs.some((m) => m.type === 'capState' && m.state === 'countin') && msgs.some((m) => m.type === 'capState' && m.state === 'recording'), 'Status: Count-in → Aufnahme → fertig');
+}
+
+/* 6. Master-Filter: alle Typen × Flanken, Resonanz 1, Drive 36 dB, LFO + Env → stabil und begrenzt */
+{
+  let worst = 0, bad = 0;
+  for (const [type] of MF_TYPES) for (const slope of [1, 4]) {
+    const p = mk(); const a = new Float32Array(SR); for (let i = 0; i < SR; i++) a[i] = (Math.random() * 2 - 1) * 0.5;
+    p.onMsg({ type: 'sample', id: 'n', L: a, R: a.slice() }); p.onMsg({ type: 'settings', limiter: false });
+    const m = masterDefaults(); m.fader = 1; Object.assign(m.filter, { on: true, type, slope, res: 1, drive: 36, envAmt: 4, lfoDepth: 4, lfoRate: 7, stereo: 1, spreadOct: 1, cutoff: 600, gain: 18, vowel: 2.5 });
+    const st = makeStep({ source: 'sample', slice: 0, gate: 16, sus: 1, loop: true });
+    p.onMsg({ type: 'state', state: state([st, ...Array.from({ length: 31 }, () => makeStep({ on: false }))], { slices: [{ sampleId: 'n', a: 0, b: 1 }], master: m }) });
+    p.onMsg({ type: 'audition', step: 0 });
+    const o = render(p, 1.2); for (let i = 0; i < o.L.length; i++) { const v = Math.abs(o.L[i]) + Math.abs(o.R[i]); if (!Number.isFinite(v)) bad++; else worst = Math.max(worst, v / 2); }
+  }
+  ok(bad === 0, 'Master-Filter: 10 Typen × 2 Flanken, Resonanz 1, Drive +36 dB, LFO/Env voll — kein NaN/Inf');
+  ok(worst < 8, `Master-Filter: Pegel bleibt begrenzt (max. ${db(worst).toFixed(1)} dBFS vor dem Limiter)`);
+}
+/* 7. Master-Filter-Flanke: LP 48 dB/Okt — Dämpfung eine Oktave über Cutoff */
+{
+  const meas = (f) => {
+    const p = mk(); const a = new Float32Array(SR); for (let i = 0; i < SR; i++) a[i] = 0.25 * Math.sin((2 * Math.PI * f * i) / SR);
+    p.onMsg({ type: 'sample', id: 's', L: a, R: a.slice() }); p.onMsg({ type: 'settings', limiter: false, panLaw: 'bal' });
+    const m = masterDefaults(); m.fader = 1; Object.assign(m.filter, { on: true, type: 'lp', slope: 4, res: 0, cutoff: 1000 });
+    p.onMsg({ type: 'state', state: state([makeStep({ source: 'sample', slice: 0, gate: 16, sus: 1, atk: 0 }), ...Array.from({ length: 31 }, () => makeStep({ on: false }))], { slices: [{ sampleId: 's', a: 0, b: 1 }], master: m }) });
+    p.onMsg({ type: 'audition', step: 0 }); const o = render(p, 0.6).L.slice(SR * 0.3, SR * 0.55);
+    let r = 0; for (const v of o) r += v * v; return Math.sqrt(r / o.length) / (0.25 / Math.SQRT2);
+  };
+  const a1 = db(meas(2000)), a0 = db(meas(250));
+  ok(a1 < -40 && a0 > -1.5, `Master-Filter LP 48 dB/Okt bei 1 kHz: 250 Hz ${a0.toFixed(1)} dB, 2 kHz ${a1.toFixed(1)} dB (≈ −48 erwartet)`);
+}
+/* 8. Heat: ADAA-Sättigung vs. naive tanh — Aliasing eines 5-kHz-Sinus bei voller Heat */
+{
+  const f0 = 4987, N2 = 32768, x = new Float64Array(N2); for (let i = 0; i < N2; i++) x[i] = 0.7 * Math.sin((2 * Math.PI * f0 * i) / SR);
+  const g = Math.pow(10, 24 / 20);
+  const naive = Array.from(x, (v) => Math.tanh(v * g));
+  const stt = new Float64Array(2), lc = (v) => (Math.abs(v) > 12 ? Math.abs(v) - Math.LN2 : Math.log(Math.cosh(v)));
+  const ad = Array.from(x, (v) => { const x1 = stt[0]; stt[0] = v * g; const d = v * g - x1; return Math.abs(d) > 1e-5 ? (lc(v * g) - lc(x1)) / d : Math.tanh(0.5 * (v * g + x1)); });
+  const alias = (y) => { let w = 0; for (let f = 200; f < 23800; f += 61) { let near = false; for (let hh = 1; hh * f0 < 24000; hh++) if (Math.abs(f - hh * f0) < 90) near = true; if (!near) w = Math.max(w, dft(Float32Array.from(y), f)); } return db(w / dft(Float32Array.from(y), f0)); };
+  const an = alias(naive), aa = alias(ad);
+  ok(aa < an - 6, `Heat-Sättigung: Alias-Produkte naiv ${an.toFixed(1)} dB → ADAA ${aa.toFixed(1)} dB (unter dem Grundton)`);
+}
+/* 9. Chaos + alle Makros auf Anschlag + Ratchets + Zufallsrichtung: stabil */
+{
+  const p = mk(); p.onMsg({ type: 'sample', id: 's', L: sL, R: sR });
+  const slices = Array.from({ length: 8 }, (_, i) => ({ sampleId: 's', a: i / 8, b: (i + 1) / 8 }));
+  const steps = Array.from({ length: 32 }, (_, i) => makeStep({ source: i % 2 ? 'synth' : 'sample', slice: i % 8, ratchet: 1 + (i % 4), ratchVel: 0.5, fType: 'lp', orbit: 0.7, depth: 0.5, spread: 2 }));
+  const ch = { ...chaosDefaults(), on: true, depth: 1, rate: 1, shape: 2.5, lock: 0.5, targets: ['gate', 'seq', 'src', 'syn', 'env', 'flt', 'pan', 'trm', 'pmd', 'phs', 'flg', 'cho', 'dly', 'rev', 'mut'] };
+  const macros = { heat: 1, density: 1, warp: 1, tone: 1, pitch: 12, length: 4, space: 1, chaos: 1 };
+  const m = masterDefaults(); m.filter.on = true; m.filter.drive = 24; m.filter.res = 0.9; m.fader = 1;
+  const stt = { ...state(steps, { slices, master: m }), macros, direction: 'rnd', chaos: { ...ch, keys: chaosKeys(ch.targets) } };
+  p.onMsg({ type: 'settings', limiter: true, ceiling: -0.3 }); p.onMsg({ type: 'state', state: stt }); p.onMsg({ type: 'play', on: true });
+  const t0 = performance.now(); const o = render(p, 10); const ms = performance.now() - t0;
+  let fin = true, pk = 0; for (let i = 0; i < o.L.length; i++) { if (!Number.isFinite(o.L[i]) || !Number.isFinite(o.R[i])) { fin = false; break; } pk = Math.max(pk, Math.abs(o.L[i]), Math.abs(o.R[i])); }
+  ok(fin && pk <= Math.pow(10, -0.3 / 20) + 1e-6, `Chaos 100 % auf ${stt.chaos.keys.length} Parametern + alle Makros + Ratchets: stabil, Peak ${db(pk).toFixed(2)} dBFS`);
+  console.log(`  ⏱  Last dabei: ${((ms / 10000) * 100).toFixed(1)} % Echtzeit`);
+}
+/* 10. Ratchet: ein Step mit Ratchet 4 erzeugt genau 4 gleichmäßig verteilte Anschläge */
+{
+  const p = mk(); let starts = [];
+  const st = makeStep({ source: 'synth', note: 60, ratchet: 4, atk: 0, dec: 5, sus: 0, rel: 5 });
+  p.onMsg({ type: 'state', state: state([st, ...Array.from({ length: 31 }, () => makeStep({ on: false }))]) });
+  const orig = p.startVoice.bind(p); let n = 0; p.startVoice = (...a) => { starts.push(n); return orig(...a); };
+  p.onMsg({ type: 'play', on: true });
+  const oL = new Float32Array(128), oR = new Float32Array(128); for (let b = 0; b < 46; b++) { p.process([], [[oL, oR]]); n += 128; }
+  const stepN = (240 / 120) / 16 * SR;
+  const first = starts.filter((x) => x < stepN);
+  ok(first.length === 4, `Ratchet 4: ${first.length} Anschläge im ersten Step (Abstand ≈ ${Math.round(stepN / 4)} Samples, Blockraster 128)`);
 }
 
 console.log(fails ? `\n${fails} Test(s) fehlgeschlagen` : '\nAlle Tests bestanden 🌶');

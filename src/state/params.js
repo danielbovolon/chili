@@ -35,6 +35,8 @@ export function fmt(u, v) {
     case 'slice': return `#${Math.round(v) + 1}`;
     case 'int': return String(Math.round(v));
     case 'grid': return gridLabel(v);
+    case 'shape': return ['Stufe', 'Linear', 'Glatt', 'Exp'][Math.min(3, Math.round(v))] + (Math.abs(v - Math.round(v)) > 0.05 ? '~' : '');
+    case 'vowel': return ['A', 'E', 'I', 'O', 'U'][Math.min(4, Math.round(v))] + (Math.abs(v - Math.round(v)) > 0.05 ? '~' : '');
     default: return v.toFixed(2);
   }
 }
@@ -64,7 +66,7 @@ const T = (k, l, def = false) => ({ k, l, t: 'tog', def });
 
 export const STEP_GROUPS = [
   { id: 'src', label: 'Quelle', sections: [
-    { title: 'Step', params: [S('source', 'Quelle', [['sample', 'Sample'], ['synth', 'Synth']], 'sample'), K('gain', 'Gain', -48, 6, 0, 'db'), K('prob', 'Chance', 0, 1, 1, '%'), K('gate', 'Länge', 0.05, 8, 1, 'steps', { c: 'log' }), K('pitch', 'Pitch', -24, 24, 0, 'st', { int: true }), K('fine', 'Fein', -100, 100, 0, 'ct')] },
+    { title: 'Step', params: [S('source', 'Quelle', [['sample', 'Sample'], ['synth', 'Synth']], 'sample'), K('gain', 'Gain', -48, 6, 0, 'db'), K('prob', 'Chance', 0, 1, 1, '%'), K('gate', 'Länge', 0.05, 8, 1, 'steps', { c: 'log' }), K('pitch', 'Pitch', -24, 24, 0, 'st', { int: true }), K('fine', 'Fein', -100, 100, 0, 'ct'), K('ratchet', 'Ratchet', 1, 8, 1, 'int', { int: true }), K('ratchVel', 'Ratchet-Dyn.', -1, 1, 0, '%')] },
     { title: 'Sample', when: (s) => s.source !== 'synth', params: [K('slice', 'Slice', 0, 31, 0, 'slice', { int: true, dyn: 'slices' }), K('start', 'Start', 0, 0.95, 0, '%'), T('reverse', 'Reverse'), T('loop', 'Loop')] },
     { title: 'Synth', when: (s) => s.source === 'synth', params: [K('note', 'Note', 24, 96, 48, 'note', { int: true }), S('osc1', 'Osc 1', WAVES, 'saw'), S('osc2', 'Osc 2', WAVES, 'square'), K('osc2Semi', 'Osc 2 Semi', -24, 24, 0, 'st', { int: true }), K('osc2Fine', 'Osc 2 Fein', -50, 50, 7, 'ct'), K('oscMix', 'Mix 1↔2', 0, 1, 0.5, '%'), K('sub', 'Sub', 0, 1, 0, '%'), K('noise', 'Noise', 0, 1, 0, '%')] },
   ] },
@@ -79,6 +81,7 @@ export const STEP_GROUPS = [
     { title: 'Panorama', params: [K('pan', 'Pan', -1, 1, 0, 'pan'), K('panRnd', 'Zufall', 0, 1, 0, '%')] },
     { title: 'Pan-Modulation', params: [K('panModDepth', 'Tiefe', 0, 1, 0, '%'), K('panModRate', 'Rate', 0.05, 40, 2, 'hz', { c: 'log' }), S('panModShape', 'Form', LFO_SHAPES, 'sine')] },
     { title: 'Autopan (sync)', params: [K('autopan', 'Tiefe', 0, 1, 0, '%'), S('autopanSync', 'Rate', SYNC_OPTS, '1/4')] },
+    { title: 'Surround', params: [K('depth', 'Tiefe', 0, 1, 0, '%'), K('orbit', 'Orbit', 0, 1, 0, '%'), K('orbitRate', 'Orbit-Rate', 0.02, 10, 0.25, 'hz', { c: 'log' }), K('spread', 'Spread', 0, 2, 1, '%')] },
   ] },
   { id: 'fx', label: 'Effekte', sections: [
     { title: 'Tremolo', params: [K('tremDepth', 'Tiefe', 0, 1, 0, '%'), K('tremRate', 'Rate', 0.1, 40, 6, 'hz', { c: 'log' }), S('tremShape', 'Form', LFO_SHAPES, 'sine')] },
@@ -120,6 +123,41 @@ export const RIP_DEFS = [
   K('pitch', 'Pitch-Drift', 0, 12, 0, 'st'), K('decay', 'Zerfall', 0, 1, 0.2, '%'),
 ];
 const defaults = (defs) => Object.fromEntries(defs.map((d) => [d.k, d.def]));
-export const masterDefaults = () => ({ comp: defaults(MASTER_GROUPS[0].params), delay: defaults(MASTER_GROUPS[1].params), verb: defaults(MASTER_GROUPS[2].params), fader: 0.8 });
+export const masterDefaults = () => ({ comp: defaults(MASTER_GROUPS[0].params), delay: defaults(MASTER_GROUPS[1].params), verb: defaults(MASTER_GROUPS[2].params), fader: 0.8, filter: mfDefaults() });
 export const collideDefaults = () => ({ on: false, ...defaults(COLLIDE_DEFS) });
 export const ripDefaults = () => ({ on: false, freeze: false, seed: 1, ...defaults(RIP_DEFS) });
+
+/* ---- Laufrichtung */
+export const DIRECTIONS = [['fwd', '→ Vorwärts'], ['rev', '← Rückwärts'], ['pp', '↔ Ping-Pong'], ['rnd', '⁂ Zufall'], ['brown', '≈ Brown'], ['skip', '⇥ Sprung']];
+
+/* ---- Makros: verändern Klang und Struktur der ganzen Sequenz (neutral = keine Wirkung) */
+export const MACRO_DEFS = [
+  K('heat', 'Heat', 0, 1, 0, '%', { help: 'Heat — Sättigung (aliasfrei, ADAA), mehr Resonanz und Filter-Hub. Von warm bis brennend.' }),
+  K('density', 'Dichte', 0, 1, 0.5, '%', { help: 'Dichte — links dünnt das Pattern aus, rechts füllt es leere Steps mit Ghost-Notes und streut Ratchets ein. Mitte = neutral.' }),
+  K('warp', 'Warp', 0, 1, 0, '%', { help: 'Warp — Mikro-Timing, Pitch-Drift, Startpunkt-Jitter und Längen-Variation pro Auslösung.' }),
+  K('tone', 'Ton', -1, 1, 0, '%', { help: 'Ton — verschiebt alle Filter-Cutoffs um bis zu ±3 Oktaven.' }),
+  K('pitch', 'Pitch', -24, 24, 0, 'st', { int: true, help: 'Pitch — transponiert die ganze Sequenz in Halbtönen.' }),
+  K('length', 'Länge', 0.1, 4, 1, 'x', { c: 'log', help: 'Länge — skaliert alle Notenlängen: Staccato bis Drone.' }),
+  K('space', 'Raum', 0, 1, 0.5, '%', { help: 'Raum — links trocken, rechts mehr Delay/Hall, Spread und Surround-Orbit. Mitte = neutral.' }),
+  K('chaos', 'Chaos', 0, 1, 0, '%', { help: 'Chaos — Gesamttiefe des Zufallsmodulators. Ganz rechts: jeder Parameter jedes Steps ändert sich bei jeder Auslösung.' }),
+];
+export const macroDefaults = () => defaults(MACRO_DEFS);
+
+/* ---- Chaos-Zufallsmodulator (angelehnt an VCV Random) */
+export const CHAOS_DEFS = [
+  K('depth', 'Tiefe', 0, 1, 0.5, '%'), K('rate', 'Rate', 1, 16, 1, 'steps', { int: true }), K('prob', 'Chance', 0, 1, 1, '%'),
+  K('rand', 'Zufall', 0, 1, 1, '%'), K('shape', 'Form', 0, 3, 0, 'shape'), K('lock', 'Lock', 0, 1, 0, '%'), K('loop', 'Loop', 2, 32, 8, 'steps', { int: true }),
+];
+export const chaosDefaults = () => ({ on: false, mode: 'rel', seed: 1, targets: ['flt', 'pan', 'mut'], ...defaults(CHAOS_DEFS) });
+
+/* ---- Master-Filter */
+export const MF_TYPES = [['lp', 'LP'], ['bp', 'BP'], ['hp', 'HP'], ['notch', 'Notch'], ['peak', 'Peak'], ['lshelf', 'Low-Shelf'], ['hshelf', 'High-Shelf'], ['comb', 'Comb +'], ['combn', 'Comb −'], ['formant', 'Formant']];
+export const MF_DEFS = [
+  K('cutoff', 'Cutoff', 20, 20000, 1200, 'hz', { c: 'log' }), K('res', 'Resonanz', 0, 1, 0.3, '%'), K('drive', 'Drive', 0, 36, 0, 'db'),
+  K('gain', 'Gain', -18, 18, 6, 'db'), K('vowel', 'Vokal', 0, 4, 0, 'vowel'),
+  K('envAmt', 'Env', -4, 4, 0, 'oct'), K('envAtk', 'Env Attack', 0.5, 200, 5, 'ms', { c: 'log' }), K('envRel', 'Env Release', 10, 2000, 150, 'ms', { c: 'log' }),
+  K('lfoDepth', 'LFO', 0, 4, 0, 'oct', { c: 'cub' }), K('lfoRate', 'LFO-Rate', 0.01, 20, 0.5, 'hz', { c: 'log' }), S('lfoSync', 'LFO-Sync', [['off', 'frei'], ...SYNC_OPTS], 'off'), S('lfoShape', 'LFO-Form', LFO_SHAPES, 'sine'),
+  K('stereo', 'Stereo-Phase', 0, 1, 0, '%'), K('spreadOct', 'L/R-Versatz', -1, 1, 0, 'oct'),
+  K('mix', 'Mix', 0, 1, 1, '%'), K('out', 'Ausgang', -18, 12, 0, 'db'),
+];
+export const mfDefaults = () => ({ on: false, type: 'lp', slope: 2, ...defaults(MF_DEFS) });

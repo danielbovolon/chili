@@ -9,9 +9,9 @@
  *   Doppelklick       Step auf Standardwert
  *   Alt + Mausrad     einzelnen Step fein einstellen
  */
-import { h } from './dom.js';
+import { h, diceBtn } from './dom.js';
 import { STEP_DEF_MAP, fmt, toNorm, fromNorm, noteName } from '../state/params.js';
-import { LAYERS, LAYER_MAP, LANE_LABEL, layerActive } from '../state/layers.js';
+import { LAYERS, LAYER_MAP, LANE_LABEL, PRESETS, layerActive } from '../state/layers.js';
 
 const GATE_DEF = { k: 'on', l: 'Gate', t: 'tog', def: true };
 const defOf = (k) => (k === 'on' ? GATE_DEF : STEP_DEF_MAP[k]);
@@ -118,6 +118,8 @@ export function stackView(app) {
       case 'gain': return Math.round(-14 + r() * 14);
       case 'prob': return r() < 0.7 ? 1 : +(0.35 + r() * 0.5).toFixed(2);
       case 'gate': return [0.25, 0.5, 1, 1, 1, 2][(r() * 6) | 0];
+      case 'ratchet': return r() < 0.72 ? 1 : [2, 2, 3, 4, 6][(r() * 5) | 0];
+      case 'spread': return +(0.6 + r() * 1.3).toFixed(2);
       case 'source': return s.source;
       case 'cutoff': return Math.round(250 * Math.pow(40, r()));
       case 'fType': return ['lp', 'lp', 'lp', 'bp', 'hp'][(r() * 5) | 0];
@@ -141,14 +143,32 @@ export function stackView(app) {
     }
     changed();
   };
-  app.layerOp = (id, op) => {
-    const l = LAYER_MAP[id]; app.snapshot();
-    const st = P().steps, L = N();
-    for (const key of l.keys) {
-      if (key === 'source') continue;
-      for (let i = 0; i < L; i++) st[i][key] = op === 'rnd' ? randValue(key, i) : defOf(key).def;
+  /** op: 'one' = ein Zufalls-Preset auf alle Steps · 'rnd' = jeder Step eigener Zufallswert · 'reset' */
+  function layerApply(id, op) {
+    const l = LAYER_MAP[id], st = P().steps, L = N();
+    if (op === 'one') {
+      const pre = PRESETS[id], usePre = pre && Math.random() < 0.65;
+      const v = usePre ? pre[(Math.random() * pre.length) | 0] : null;
+      const vals = {};
+      for (const key of l.keys) { if (key === 'source' || key === 'slice' || key === 'note') continue; vals[key] = v ? v.v[key] : randValue(key, 0); }
+      for (const [key, val] of Object.entries(vals)) if (val !== undefined) for (let i = 0; i < L; i++) st[i][key] = val;
+      if (!P().layers[id].on && l.bypass) P().layers[id].on = true;
+      return v ? v.n : 'Zufall';
     }
-    changed();
+    for (const key of l.keys) {
+      if (key === 'source' && (op !== 'rnd' || !nSl())) continue;
+      for (let i = 0; i < L; i++) st[i][key] = op === 'rnd' ? (key === 'source' ? (Math.random() < 0.3 ? 'synth' : 'sample') : randValue(key, i)) : defOf(key).def;
+    }
+    if (op === 'rnd' && !P().layers[id].on && l.bypass) P().layers[id].on = true;
+    return null;
+  }
+  app.layerOp = (id, op) => { app.snapshot(); const n = layerApply(id, op); changed(); if (n) app.toast(`${LAYER_MAP[id].label}: Preset „${n}" auf allen Steps`); el.refresh(); };
+  app.randomAll = (op) => {
+    app.snapshot();
+    for (const l of LAYERS) if (l.id !== 'rip') layerApply(l.id, op);
+    if (op === 'all') for (let i = 0; i < N(); i++) P().steps[i].on = randValue('on', i);
+    changed(); el.refresh();
+    app.toast(op === 'one' ? 'Jede Reihe: ein zufälliges Preset' : 'Jeder Step jeder Reihe: zufällig');
   };
 
   function changed() { app.commit(); dirty = true; updateChips(); updateReadouts(); }
@@ -184,7 +204,7 @@ export function stackView(app) {
     const cv = h('canvas', { class: 'lane-cv' });
     const ro = h('span', { class: 'ro' });
     const ops = h('span', { class: 'ops' });
-    const op = (sym, o, help) => h('button', { class: 'ibtn', 'data-help': help, onclick: () => app.laneOp(key, o) }, sym);
+    const op = (sym, o, help) => (sym === '✦' ? diceBtn('', help, () => app.laneOp(key, o), 'sm') : h('button', { class: 'ibtn', 'data-help': help, onclick: () => app.laneOp(key, o) }, sym));
     if (kind === 'gate') ops.append(op('✦', 'rnd', 'Zufälliges Gate-Muster.'), op('●', 'reset', 'Alle Steps an.'), op('○', 'off', 'Alle Steps aus.'), op('◀', 'left', 'Muster einen Step nach links rotieren.'), op('▶', 'right', 'Muster einen Step nach rechts rotieren.'));
     else ops.append(op('✦', 'rnd', 'Lane würfeln: zufällige, musikalisch begrenzte Werte.'), op('⟲', 'reset', 'Lane auf Standardwerte.'), op('◀', 'left', 'Lane einen Step nach links rotieren.'), op('▶', 'right', 'Lane einen Step nach rechts rotieren.'));
     const name = kind === 'gate' ? 'Gate' : LANE_LABEL[key] || defOf(key).l;
@@ -222,7 +242,8 @@ export function stackView(app) {
       h('div', { class: 'lh-l' }, h('i', { class: 'lbar' }), power, h('span', { class: 'lname' }, l.label),
         h('button', { class: `chev${st.open ? ' open' : ''}`, 'data-help': 'Layer auf-/zuklappen: alle Lanes des Layers zeigen.', onclick: () => { st.open = !st.open; el.refresh(); } }, '▸')),
       h('div', { class: 'lh-r' }, st.open ? h('span', { class: 'lh-hint' }, `${l.keys.length} Lanes`) : tabs, h('span', { class: 'grow' }),
-        h('button', { class: 'ibtn', 'data-help': `Ganzen Layer „${l.label}" würfeln.`, onclick: () => app.layerOp(l.id, 'rnd') }, '✦'),
+        diceBtn('1', `Würfel 1 — ein zufälliges Preset für „${l.label}", gleich auf allen Steps.`, () => app.layerOp(l.id, 'one')),
+        diceBtn('ALL', `Würfel ALL — jeder Step bekommt in „${l.label}" eigene Zufallswerte.`, () => app.layerOp(l.id, 'rnd'), 'hot'),
         h('button', { class: 'ibtn', 'data-help': `Ganzen Layer „${l.label}" zurücksetzen.`, onclick: () => app.layerOp(l.id, 'reset') }, '⟲'),
         h('button', { class: 'ibtn', 'data-help': 'Layer ausblenden (bleibt aktiv, wenn nicht gebypasst).', onclick: () => { st.show = false; el.refresh(); } }, '✕')));
     const block = h('div', { class: `layer${isOn() ? '' : ' byp'}`, style: { '--lc': l.color } }, head);

@@ -53,3 +53,27 @@ export function peaks(buf, cols = 1600) {
   }
   return { mn, mx };
 }
+
+/** Beat-Slicing wie Simpler „Beat": Raster in Notenwerten, Sample-Länge wird auf ganze Beats beim Projekttempo gerundet */
+export function beatSlices(buf, bpm, grid = '1/16', max = 32) {
+  const beat = 60 / bpm, dur = buf.duration, beats = Math.max(1, Math.round(dur / beat));
+  const per = { '1/2': 2, '1/4': 1, '1/8': 0.5, '1/16': 0.25, '1/32': 0.125 }[grid] || 0.25;
+  const n = Math.max(1, Math.min(max, Math.round(beats / per)));
+  return equalSlices(n);
+}
+/** Auto: Transienten, wenn das Material klar perkussiv ist, sonst Beat-Raster */
+export function autoSlices(buf, bpm, max = 16) {
+  const t = transientSlices(buf, 0.5, max);
+  return t.length >= Math.min(4, max) ? t : beatSlices(buf, bpm, '1/8', max);
+}
+/** Zuordnung Slice → Step */
+export function mapSlices(n, L, mode) {
+  const idx = Array.from({ length: L }, (_, i) => i % n);
+  switch (mode) {
+    case 'rev': return idx.map((_, i) => (n - 1 - (i % n) + n) % n);
+    case 'pp': { const seq = []; for (let i = 0; i < n; i++) seq.push(i); for (let i = n - 2; i > 0; i--) seq.push(i); return idx.map((_, i) => seq[i % seq.length]); }
+    case 'rnd': return idx.map(() => (Math.random() * n) | 0);
+    case 'one': return idx.map(() => 0);
+    default: return idx;
+  }
+}
